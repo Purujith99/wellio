@@ -41,14 +41,21 @@ class FaceGuidanceProcessor(VideoProcessorBase):
         self.shared_state = SharedState()
         self.lock = threading.Lock()
         
-        # Initialize MediaPipe Face Mesh
-        self.mp_face_mesh = mp.solutions.face_mesh
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
+        try:
+            # Initialize MediaPipe Face Mesh
+            self.mp_face_mesh = mp.solutions.face_mesh
+            self.face_mesh = self.mp_face_mesh.FaceMesh(
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5
+            )
+            self.use_mediapipe = True
+        except Exception as e:
+            # Fallback to Haar Cascade if MediaPipe fails (e.g. Python 3.13 issues)
+            print(f"MediaPipe initialization failed: {e}. Falling back to Haar Cascades.")
+            self.use_mediapipe = False
+            self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         img = frame.to_ndarray(format="bgr24")
@@ -58,21 +65,11 @@ class FaceGuidanceProcessor(VideoProcessorBase):
         img = cv2.flip(img, 1)
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         
-        # Process with MediaPipe
-        results = self.face_mesh.process(rgb_img)
-        
-        # Calculate ideal oval parameters
-        center_x, center_y = width // 2, height // 2
-        radius_x = int(width * 0.25)
-        radius_y = int(height * 0.35)
-        
-        # Status update variables
-        current_guidance = ""
-        current_color = (0, 165, 255) # Orange (BGR)
-        aligned = False
-        face_detected = False
-        
-        with self.lock:
+        # Process frame
+        if self.use_mediapipe:
+            # MediaPipe Logic
+            results = self.face_mesh.process(rgb_img)
+            
             if not results.multi_face_landmarks:
                 current_guidance = "Face not detected"
                 self.shared_state.alignment_stable_start = 0
@@ -81,17 +78,13 @@ class FaceGuidanceProcessor(VideoProcessorBase):
                 landmarks = results.multi_face_landmarks[0].landmark
                 
                 # Get key landmarks for alignment
-                # 1: Nose tip, 234: Left ear, 454: Right ear, 10: Top head, 152: Chin
                 nose = landmarks[1]
                 left_ear = landmarks[234]
                 right_ear = landmarks[454]
-                chin = landmarks[152]
-                forehead = landmarks[10]
                 
                 # Convert to pixels
                 nose_x, nose_y = int(nose.x * width), int(nose.y * height)
                 face_width = int(abs(right_ear.x - left_ear.x) * width)
-                # face_height = int(abs(chin.y - forehead.y) * height)
                 
                 # Check centering
                 offset_x = abs(nose_x - center_x)
@@ -108,13 +101,43 @@ class FaceGuidanceProcessor(VideoProcessorBase):
                     current_guidance = "Move back"
                     self.shared_state.alignment_stable_start = 0
                 else:
-                    # Face is well positioned
                     current_guidance = "Perfect! Stay still"
                     current_color = (0, 255, 0) # Green
                     aligned = True
+        else:
+            # Fallback Usage (Haar Cascade)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            faces = self.face_cascade.detectMultiScale(gray, 1.3, 5)
+            
+            if len(faces) == 0:
+                current_guidance = "Face not detected (Basic Mode)"
+                self.shared_state.alignment_stable_start = 0
+            else:
+                face_detected = True
+                largest_face = max(faces, key=lambda r: r[2] * r[3])
+                x, y, w, h = largest_face
+                face_center_x = x + w // 2
+                face_center_y = y + h // 2
                 
-                # Draw face mesh (optional, maybe just key points or oval)
-                # self.mp_drawing.draw_landmarks(...) - skipping for cleaner UI
+                offset_x = abs(face_center_x - center_x)
+                offset_y = abs(face_center_y - center_y)
+                
+                if offset_x > radius_x * 0.5 or offset_y > radius_y * 0.5:
+                    current_guidance = "Center your face"
+                    self.shared_state.alignment_stable_start = 0
+                elif w < radius_x * 1.0:
+                    current_guidance = "Move closer"
+                    self.shared_state.alignment_stable_start = 0
+                else:
+                    current_guidance = "Perfect! Stay still"
+                    current_color = (0, 255, 0)
+                    aligned = True
+
+        with self.lock:
+            # Shared logic for recording (same for both modes)
+            # Logic for Auto-Recording
+            now = time.time()
+            # ... (Rest of logic continues below)
                 
             # Logic for Auto-Recording
             now = time.time()
