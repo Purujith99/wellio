@@ -286,7 +286,14 @@ def process_rppg_video(video_path: str, progress_callback=None) -> VitalOutput:
     if fs <= 1 or fs > 120:
         fs = 30.0
 
+    # Handle unreliable total_frames (common with browser-recorded .webm)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Heuristic: If total_frames is suspiciously high for a single video, 
+    # it's likely a misread header. We cap it to a reasonable maximum for analysis.
+    # 15s @ 30fps = 450 frames. We'll cap at 600.
+    if total_frames <= 0 or total_frames > 2000:
+        total_frames = 450 # Reasonable default for 15s
 
     # Initialize Haar Cascade face detector
     # Priority: 1. HAARCASCADE_PATH env var, 2. Local file, 3. OpenCV data path
