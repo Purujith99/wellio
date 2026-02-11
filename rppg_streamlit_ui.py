@@ -1383,26 +1383,32 @@ recording_mode = st.radio(
 )
 
 uploaded_file = None
-recorded_file_path = None
+recorded_file_path = st.session_state.get("recorded_file_path")
 
 if recording_mode == "live":
     # Show live camera component
     st.subheader(f"📹 {t('live_recording_title')}")
     st.caption(t("live_recording_subtitle"))
     
-    # Use the native JS camera component
-    base64_video = camera_component(duration_seconds=15)
+    # Use the refactored bidirectional camera component
+    base64_video = camera_component(duration_seconds=15, key="live_v5_stable")
     
-    if base64_video:
+    if base64_video and not st.session_state.get("recorded_file_path"):
         video_path = save_camera_video(base64_video)
         if video_path:
-            recorded_file_path = video_path
+            st.session_state["recorded_file_path"] = video_path
             st.success("✅ Video recorded successfully!")
             st.rerun() # Refresh to trigger analysis with the new file
         
-    # Manual trigger info
+    # Status display
     if not recorded_file_path:
         st.info("💡 Pulse will be captured automatically after 15 seconds of recording.")
+    else:
+        st.success("📹 Video ready for analysis.")
+        if st.button("🔄 " + t("start_new_analysis")):
+            st.session_state.pop("recorded_file_path", None)
+            st.session_state.pop("analysis_results", None)
+            st.rerun()
 
 else:
     uploaded_file = st.file_uploader(
@@ -1432,7 +1438,10 @@ start_analysis = False
 if uploaded_file is not None or recorded_file_path is not None:
     # Create temp path
     tmp_dir = tempfile.mkdtemp()
-    tmp_path = os.path.join(tmp_dir, "video_input.mp4")
+    
+    # Use proper extension based on source
+    ext = ".webm" if recorded_file_path else ".mp4"
+    tmp_path = os.path.join(tmp_dir, f"video_input{ext}")
     
     if uploaded_file is not None:
         # Handle Upload
