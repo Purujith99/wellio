@@ -65,14 +65,12 @@ def get_supabase_client() -> Optional[Client]:
         key = os.environ.get("SUPABASE_KEY")
     
     if not url or not key:
-        print("Warning: Supabase credentials not found in environment variables")
-        return None
+        return None, "Supabase credentials (URL or Key) not found in environment."
     
     try:
-        return create_client(url, key)
+        return create_client(url, key), None
     except Exception as e:
-        print(f"Error creating Supabase client: {e}")
-        return None
+        return None, f"Error creating Supabase client: {str(e)}"
 
 
 # ============================================================================
@@ -219,7 +217,7 @@ def user_exists(email: str) -> bool:
         True if user exists, False otherwise
     """
     try:
-        supabase = get_supabase_client()
+        supabase, _ = get_supabase_client()
         if not supabase:
             return False
         
@@ -241,7 +239,7 @@ def get_user(email: str) -> Optional[User]:
         User object if found, None otherwise
     """
     try:
-        supabase = get_supabase_client()
+        supabase, _ = get_supabase_client()
         if not supabase:
             return None
         
@@ -292,9 +290,9 @@ def create_user(email: str, password: str, name: str, language: str = "en") -> T
         return False, "Please enter your full name"
     
     try:
-        supabase = get_supabase_client()
+        supabase, error_msg = get_supabase_client()
         if not supabase:
-            return False, "Database connection error. Please try again."
+            return False, f"Database connection error: {error_msg or 'Unknown error'}"
         
         # Check if user already exists
         if user_exists(email):
@@ -337,9 +335,9 @@ def authenticate_user(email: str, password: str) -> Tuple[bool, Optional[User], 
         return False, None, "Please enter both email and password"
     
     try:
-        supabase = get_supabase_client()
+        supabase, error_msg = get_supabase_client()
         if not supabase:
-            return False, None, "Database connection error. Please try again."
+            return False, None, f"Database connection error: {error_msg or 'Unknown error'}"
         
         # Get user from Supabase
         response = supabase.table('users').select('*').eq('email', email.lower()).execute()
@@ -386,7 +384,7 @@ def update_user_login(email: str) -> bool:
         True if successful
     """
     try:
-        supabase = get_supabase_client()
+        supabase, _ = get_supabase_client()
         if not supabase:
             return False
         
@@ -416,7 +414,7 @@ def update_user_language(email: str, language: str) -> bool:
         return False
     
     try:
-        supabase = get_supabase_client()
+        supabase, _ = get_supabase_client()
         if not supabase:
             return False
         
@@ -449,7 +447,11 @@ def get_google_auth_url(redirect_to: str = None, supabase_client: Optional[Clien
         redirect_to = os.environ.get("APP_URL", "http://localhost:8501")
 
     try:
-        supabase = supabase_client if supabase_client else get_supabase_client()
+        if supabase_client:
+             supabase = supabase_client
+        else:
+             supabase, _ = get_supabase_client()
+             
         if not supabase:
             return None
         
@@ -479,9 +481,13 @@ def exchange_code_for_session(auth_code: str, supabase_client: Optional[Client] 
         (success: bool, user: Optional[User], message: str)
     """
     try:
-        supabase = supabase_client if supabase_client else get_supabase_client()
+        if supabase_client:
+             supabase = supabase_client
+        else:
+             supabase, error_msg = get_supabase_client()
+             
         if not supabase:
-            return False, None, "Database connection error"
+            return False, None, f"Database connection error: {error_msg or 'Unknown error'}"
             
         # Exchange code for session
         response = supabase.auth.exchange_code_for_session({"auth_code": auth_code})
@@ -552,7 +558,7 @@ def exchange_code_for_session(auth_code: str, supabase_client: Optional[Client] 
 def get_user_count() -> int:
     """Get total number of registered users from Supabase"""
     try:
-        supabase = get_supabase_client()
+        supabase, _ = get_supabase_client()
         if not supabase:
             return 0
         
@@ -574,9 +580,9 @@ def delete_user(email: str) -> Tuple[bool, str]:
         (success: bool, message: str)
     """
     try:
-        supabase = get_supabase_client()
+        supabase, error_msg = get_supabase_client()
         if not supabase:
-            return False, "Database connection error"
+            return False, f"Database connection error: {error_msg or 'Unknown error'}"
         
         supabase.table('users').delete().eq('email', email.lower()).execute()
         return True, "User deleted successfully"
