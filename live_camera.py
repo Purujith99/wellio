@@ -267,7 +267,7 @@ def live_camera_interface():
             "- Connection may take 5-10 seconds to establish")
 
     ctx = webrtc_streamer(
-        key="live_camera",
+        key="live_camera_stable",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=rtc_config,
         video_processor_factory=FaceGuidanceProcessor,
