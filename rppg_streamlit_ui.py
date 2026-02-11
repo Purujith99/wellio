@@ -20,44 +20,10 @@ import shutil
 from typing import Optional
 import sys
 
-# ======================================================================
-# WebRTC STABILITY SHIELD (Fixes KeyError and AttributeError on Python 3.13)
-# ======================================================================
-try:
-    import streamlit_webrtc.component as webrtc_comp
-    import streamlit_webrtc.shutdown as webrtc_shut
-    
-    # 1. Protect against 'SessionShutdownObserver' missing '_polling_thread'
-    if hasattr(webrtc_shut, "SessionShutdownObserver"):
-        orig_stop = webrtc_shut.SessionShutdownObserver.stop
-        def safe_stop(self):
-            if hasattr(self, "_polling_thread") and self._polling_thread is not None:
-                try:
-                    if self._polling_thread.is_alive():
-                        orig_stop(self)
-                except AttributeError: pass
-        webrtc_shut.SessionShutdownObserver.stop = safe_stop
-
-    # 2. Protect against KeyError in frontend callbacks (frontend_key missing)
-    orig_component_func = webrtc_comp._component_func
-    def safe_component_func(*args, **kwargs):
-        if "on_change" in kwargs:
-            orig_cb = kwargs["on_change"]
-            def safe_cb(*c_args, **c_kwargs):
-                try:
-                    return orig_cb(*c_args, **c_kwargs)
-                except (KeyError, AttributeError, RuntimeError):
-                    return None
-            kwargs["on_change"] = safe_cb
-        return orig_component_func(*args, **kwargs)
-    webrtc_comp._component_func = safe_component_func
-except Exception:
-    pass # Fallback if library structure changes
-# ======================================================================
 
 # Import translations module
 from translations import get_text, get_available_languages, translate_dynamic, LANGUAGES
-from live_camera import live_camera_interface, process_recorded_video
+from camera_component import camera_component, save_camera_video
 from streamlit_mic_recorder import speech_to_text
 from dotenv import load_dotenv
 
@@ -1424,24 +1390,19 @@ if recording_mode == "live":
     st.subheader(f"📹 {t('live_recording_title')}")
     st.caption(t("live_recording_subtitle"))
     
-    # Use the WebRTC interface
-    # It returns a path if a recording was successfully captured and processed
-    # We add a manual checks button for UX if auto-detection misses the timing
+    # Use the native JS camera component
+    base64_video = camera_component(duration_seconds=15)
     
-    video_path = live_camera_interface()
-    
-    if video_path:
-        recorded_file_path = video_path
-        st.success("Video recorded successfully!")
+    if base64_video:
+        video_path = save_camera_video(base64_video)
+        if video_path:
+            recorded_file_path = video_path
+            st.success("✅ Video recorded successfully!")
+            st.rerun() # Refresh to trigger analysis with the new file
         
-        # Auto-trigger analysis if we have the file
-        # We can simulate an uploaded file object or just pass the path
-        # The existing logic expects `uploaded_file` (BytesIO).
-        # We need to adapt the analysis logic below to handle `recorded_file_path`.
-        
-    # Manual trigger if needed (though interface should handle it)
+    # Manual trigger info
     if not recorded_file_path:
-        st.info("When recording is complete, the video will be processed automatically.")
+        st.info("💡 Pulse will be captured automatically after 15 seconds of recording.")
 
 else:
     uploaded_file = st.file_uploader(
