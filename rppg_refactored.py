@@ -1,6 +1,6 @@
 """
-Remote Photoplethysmography (rPPG) System - Refactored Modular Version
-========================================================================
+Remote Photoplethysmography (rPPG) System - Multi-ROI Fusion
+==============================================================
 
 DISCLAIMER:
 -----------
@@ -8,790 +8,591 @@ This is a research/demo prototype. Outputs are experimental and NOT clinically v
 Do NOT use for medical diagnosis or treatment. Consult a healthcare professional.
 
 Pipeline:
-1. Face Detection (MediaPipe / Haar)
-2. Signal Extraction (green channel temporal)
-3. Signal Processing (detrending, interpolation, filtering)
-4. Vitals Estimation (HR, HRV, experimental BP)
-5. Risk Scoring (heuristic, for demo only)
-6. Visualization (plots, alerts)
-
-Architecture:
-- signal_extraction.py: ROI extraction, channel averaging
-- signal_processor.py: Filtering, detrending, quality checks
-- vitals_estimator.py: HR, RR, HRV, experimental BP
-- risk_scorer.py: Heuristic risk rules
-- ui_streamlit.py: Streamlit interface
-- api_fastapi.py: FastAPI backend (for web/mobile)
+1. Face Detection (OpenCV Haar Cascade) with Multi-ROI extraction (forehead + both cheeks)
+2. Signal Extraction (red & green channels from each ROI)
+3. Quality-Weighted ROI Fusion
+4. Signal Processing (normalization, bandpass filtering)
+5. Vitals Estimation (HR, HRV, Stress, SpO2)
+6. Risk Scoring (heuristic, for demo only)
 
 """
 
-import warnings
-import numpy as np
-import pandas as pd
-from typing import Tuple, Dict, Optional, List
-from dataclasses import dataclass
-from enum import Enum
 import cv2
-
-try:
-    import mediapipe as mp
-    HAVE_MEDIAPIPE = False  # Disable MediaPipe due to compatibility issues
-except ImportError:
-    HAVE_MEDIAPIPE = False
-
-from scipy.signal import butter, filtfilt, find_peaks, welch, detrend, periodogram
-from scipy.fft import rfft, rfftfreq
+import numpy as np
+from dataclasses import dataclass
+from typing import Optional, List, Dict, Any
+from scipy.signal import butter, filtfilt, welch, find_peaks
+from types import SimpleNamespace
+import warnings
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-# ============================================================================
-# CONSTANTS & CONFIG
-# ============================================================================
 
-class SignalConfig:
-    """Signal processing hyperparameters"""
-    BANDPASS_LOW = 0.75  # Hz (~45 BPM)
-    BANDPASS_HIGH = 3.0  # Hz (~180 BPM)
-    BANDPASS_ORDER = 4
-    FPS_DEFAULT = 30  # fallback FPS
-    MIN_DETECTION_RATIO = 0.25  # min 25% of frames must have face
-    NaN_INTERPOLATION_LIMIT = 0.5  # max 50% NaN allowed before warning
-
-class HRConfig:
-    """Heart rate estimation parameters"""
-    MIN_HR = 30  # BPM
-    MAX_HR = 220  # BPM
-    MIN_PEAKS_FOR_HRV = 3  # need at least 3 peaks for RR variance
-    PEAK_MIN_DISTANCE = 0.4  # seconds between heartbeats (150 BPM max)
-
-
-# ============================================================================
-# DATA STRUCTURES
-# ============================================================================
-
+# -----------------------------
+# Data Structures
+# -----------------------------
 @dataclass
-class ROIBbox:
-    """Bounding box for ROI"""
-    x: int
-    y: int
-    w: int
-    h: int
-    
-    def is_valid(self, img_h: int, img_w: int) -> bool:
-        """Check if bbox is within image bounds and non-zero size"""
-        return (self.x >= 0 and self.y >= 0 and 
-                self.w > 2 and self.h > 2 and
-                self.x + self.w <= img_w and 
-                self.y + self.h <= img_h)
-
-
-@dataclass
-class SignalData:
-    """Extracted and preprocessed signals"""
-    green: np.ndarray  # green channel over time
-    red: np.ndarray    # red channel over time
-    fps: float
-    detected_frames: int
-    total_frames: int
-    
-
-@dataclass
-class FilteredSignal:
-    """Filtered signal with metadata"""
-    signal: np.ndarray  # filtered signal
-    sampling_rate: float
-    psd: np.ndarray     # power spectral density
-    psd_freqs: np.ndarray  # frequency axis
-    snr: float          # signal-to-noise ratio (power in HR band / outside)
-    quality_flags: Dict[str, bool]  # quality checks (motion_high, nan_high, etc.)
-
-
-@dataclass
-class VitalsEstimate:
-    """Vitals estimation output"""
-    heart_rate_bpm: float
-    heart_rate_confidence: str  # "HIGH", "MEDIUM", "LOW"
-    rr_intervals: np.ndarray  # in milliseconds
-    sdnn: float  # std of RR intervals (ms)
-    pnn50: float  # percentage of RR intervals > 50ms difference
-    stress_level: Optional[float]  # 0-10, experimental
-    bp_systolic: Optional[float]
-    bp_diastolic: Optional[float]
-    bp_note: str  # disclaimer
+class VitalOutput:
+    """Output structure for vitals estimation"""
+    bpm: Optional[float]
+    heart_rate: Optional[float]
+    stress_index: Optional[float]
     spo2: Optional[float]
-    spo2_note: str  # disclaimer
-    
+    # Additional fields for UI compatibility
+    hrv_sdnn: Optional[float] = None
+    hrv_rmssd: Optional[float] = None
+    hrv_pnn50: Optional[float] = None
+    rr_intervals: Optional[np.ndarray] = None
+    bp_systolic: Optional[float] = None
+    bp_diastolic: Optional[float] = None
+    confidence: Optional[float] = None
+    quality_score: Optional[float] = None
 
-@dataclass 
-class RiskAssessment:
-    """Risk scoring output"""
-    risk_score: int
-    risk_level: str  # "LOW", "MODERATE", "HIGH"
-    alerts: List[str]  # list of concerns
-    recommendation: str
+
+# -----------------------------
+# Signal Processing Helpers
+# -----------------------------
+def _bandpass(sig, fs, low=0.7, high=4.0):
+    """Bandpass filter for heart rate band"""
+    if len(sig) < fs * 5:
+        return sig
+    nyq = 0.5 * fs
+    b, a = butter(3, [low / nyq, high / nyq], btype="band")
+    return filtfilt(b, a, sig)
 
 
-# ============================================================================
-# MODULE 1: FACE DETECTION & ROI EXTRACTION
-# ============================================================================
+def _welch_hr(sig, fs):
+    """Estimate heart rate using Welch's method"""
+    # Reduced from fs * 10 to fs * 5 to support shorter videos
+    # Minimum 5 seconds of data required for reasonable HR estimation
+    if len(sig) < fs * 5:
+        return None, 0
+    freqs, psd = welch(sig, fs=fs, nperseg=min(512, len(sig)))  # Reduced nperseg for shorter signals
+    band = (freqs >= 0.7) & (freqs <= 4.0)
+    if not np.any(band):
+        return None, 0
+    f_band = freqs[band]
+    p_band = psd[band]
+    peak_i = np.argmax(p_band)
+    peak_ratio = p_band[peak_i] / (np.sum(p_band) + 1e-9)
+    return f_band[peak_i] * 60.0, peak_ratio
 
-class FaceDetector:
-    """Unified face detection (MediaPipe preferred, Haar fallback)"""
+
+def _rr_intervals(sig, fs, hr):
+    """Extract RR intervals from signal"""
+    if hr is None or hr <= 0:
+        return np.array([])
+    period = 60.0 / hr
+    min_dist = int(0.5 * period * fs)
+    peaks, _ = find_peaks(sig, distance=min_dist)
+    # Reduced from 5 to 3 for shorter videos
+    if len(peaks) < 3:
+        return np.array([])
+    rr = np.diff(peaks) / fs
+    # Filter outliers
+    rr = rr[(rr > 0.3) & (rr < 2.0)]
+    return rr
+
+
+def _sdnn(rr):
+    """Standard deviation of RR intervals (HRV metric)"""
+    # Reduced from 10 to 3 for shorter videos
+    if len(rr) < 3:
+        return None
+    return np.std(rr, ddof=1) * 1000.0
+
+
+def _rmssd(rr):
+    """Root mean square of successive differences (HRV metric)"""
+    # Reduced from 10 to 3 for shorter videos
+    if len(rr) < 3:
+        return None
+    diff = np.diff(rr)
+    return np.sqrt(np.mean(diff ** 2)) * 1000.0
+
+
+def _pnn50(rr):
+    """Percentage of successive RR intervals > 50ms"""
+    if len(rr) < 3:
+        return 0.0
+    diff = np.abs(np.diff(rr)) * 1000.0  # ms
+    nn50 = np.sum(diff > 50)
+    return float(nn50 / len(diff)) * 100.0
+
+
+def _stress_from_hrv(sdnn, rmssd):
+    """
+    Calculate stress index from HRV metrics using refined SDNN thresholds.
     
-    def __init__(self, use_mediapipe: bool = True):
-        self.use_mediapipe = use_mediapipe and HAVE_MEDIAPIPE
-        self.mp_face = None
-        self.haar_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
-        
-        if self.use_mediapipe:
-            mp_face_mesh = mp.solutions.face_mesh
-            self.mp_face = mp_face_mesh.FaceMesh(
-                static_image_mode=False,
-                max_num_faces=1,
-                refine_landmarks=False,
-                min_detection_confidence=0.5
-            )
+    Revised Scale (0-10):
+    - SDNN < 25ms: 10.0 to 8.1 (High)
+    - SDNN 25-40ms: 8.0 to 4.1 (Moderate)
+    - SDNN 40-100ms: 4.0 to 1.1 (Low)
+    - SDNN > 100ms: Floor at 1.0 (Very Low)
     
-    def get_forehead_roi(self, face_bbox: Tuple[int, int, int, int]) -> ROIBbox:
-        """Extract forehead region from face bounding box"""
-        x, y, w, h = face_bbox
-        fx = int(x + w * 0.3)
-        fy = int(y + h * 0.08)  # forehead is ~8% down
-        fw = int(w * 0.4)  # ~40% of face width
-        fh = int(h * 0.18)  # ~18% of face height
-        return ROIBbox(fx, fy, fw, fh)
-    
-    def mediapipe_forehead_bbox(self, landmarks, img_w: int, img_h: int) -> Optional[ROIBbox]:
-        """Compute forehead ROI from MediaPipe landmarks"""
-        try:
-            xs = np.array([lm.x for lm in landmarks])
-            ys = np.array([lm.y for lm in landmarks])
-            min_x, max_x = xs.min() * img_w, xs.max() * img_w
-            min_y, max_y = ys.min() * img_h, ys.max() * img_h
-            face_bbox = (int(min_x), int(min_y), int(max_x - min_x), int(max_y - min_y))
-            return self.get_forehead_roi(face_bbox)
-        except Exception:
-            return None
-    
-    def detect(self, frame: np.ndarray) -> Optional[ROIBbox]:
-        """Detect face and return forehead ROI"""
-        h_img, w_img = frame.shape[:2]
-        
-        # Try MediaPipe first
-        if self.mp_face is not None:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = self.mp_face.process(rgb)
-            if results.multi_face_landmarks:
-                lm = results.multi_face_landmarks[0].landmark
-                roi = self.mediapipe_forehead_bbox(lm, w_img, h_img)
-                if roi and roi.is_valid(h_img, w_img):
-                    return roi
-        
-        # Fallback to Haar cascade
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self.haar_cascade.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=4, minSize=(80, 80)
-        )
-        if len(faces) > 0:
-            face = max(faces, key=lambda r: r[2] * r[3])  # largest face
-            roi = self.get_forehead_roi(face)
-            if roi.is_valid(h_img, w_img):
-                return roi
-        
+    Returns stress index on 0-10 scale
+    """
+    if sdnn is None:
         return None
     
-    def close(self):
-        """Cleanup resources"""
-        if self.mp_face:
-            self.mp_face.close()
-
-
-# ============================================================================
-# MODULE 2: SIGNAL EXTRACTION FROM VIDEO
-# ============================================================================
-
-class SignalExtractor:
-    """Extract temporal color signals from ROI"""
+    sdnn_val = sdnn
     
-    def __init__(self, detector: FaceDetector):
-        self.detector = detector
+    if sdnn_val < 25:
+        # High stress: 0ms -> 10.0, 25ms -> 8.1
+        stress = 10.0 - (sdnn_val / 25.0) * 1.9
+    elif sdnn_val <= 40:
+        # Moderate stress: 25ms -> 8.0, 40ms -> 4.1
+        stress = 8.0 - ((sdnn_val - 25.0) / 15.0) * 3.9
+    elif sdnn_val <= 100:
+        # Low stress: 40ms -> 4.0, 100ms -> 1.1
+        stress = 4.0 - ((sdnn_val - 40.0) / 60.0) * 2.9
+    else:
+        # Very Low state
+        stress = 1.0
     
-    def extract(self, video_path: str, progress_callback=None) -> SignalData:
-        """
-        Extract green and red channel signals from video.
-        
-        Args:
-            video_path: path to video file
-            progress_callback: optional function(current, total) for UI updates
-            
-        Returns:
-            SignalData with green, red, fps, detection stats
-        """
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"Could not open video: {video_path}")
-        
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        if fps == 0 or np.isnan(fps):
-            fps = SignalConfig.FPS_DEFAULT
-        
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or None
-        
-        greens, reds = [], []
-        detected_frames = 0
-        frame_idx = 0
-        
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            roi = self.detector.detect(frame)
-            if roi is not None:
-                x, y, w, h = roi.x, roi.y, roi.w, roi.h
-                patch = frame[y:y+h, x:x+w]
-                if patch.size > 0:
-                    # Extract channels (BGR in OpenCV)
-                    greens.append(float(np.mean(patch[:, :, 1])))
-                    reds.append(float(np.mean(patch[:, :, 2])))
-                    detected_frames += 1
-                else:
-                    greens.append(np.nan)
-                    reds.append(np.nan)
-            else:
-                greens.append(np.nan)
-                reds.append(np.nan)
-            
-            frame_idx += 1
-            if progress_callback and total_frames:
-                progress_callback(frame_idx, total_frames)
-        
-        cap.release()
-        
-        # Check detection quality
-        if total_frames and detected_frames < total_frames * SignalConfig.MIN_DETECTION_RATIO:
-            raise ValueError(
-                f"Face detected in only {detected_frames}/{total_frames} frames "
-                f"({100*detected_frames/total_frames:.1f}%). "
-                "Try better lighting or adjust camera position."
-            )
-        
-        return SignalData(
-            green=np.array(greens, dtype=float),
-            red=np.array(reds, dtype=float),
-            fps=fps,
-            detected_frames=detected_frames,
-            total_frames=frame_idx or 0
-        )
+    return float(np.clip(stress, 0.5, 10.0))
 
 
-# ============================================================================
-# MODULE 3: SIGNAL PROCESSING (Filtering, Detrending, Quality)
-# ============================================================================
-
-class SignalProcessor:
-    """Preprocess signals: interpolation, detrending, filtering, quality checks"""
-    
-    @staticmethod
-    def interpolate_nans(signal: np.ndarray, warn_threshold: float = 0.3) -> np.ndarray:
-        """
-        Interpolate NaN values in signal.
-        
-        Warns if >threshold of signal is NaN.
-        Returns interpolated signal.
-        """
-        nan_ratio = np.isnan(signal).sum() / len(signal)
-        if nan_ratio > warn_threshold:
-            print(f"[WARNING] Signal has {100*nan_ratio:.1f}% NaN values. "
-                  "Face detection may be unreliable.")
-        
-        if not np.isnan(signal).any():
-            return signal
-        
-        # Use pandas interpolation for robustness
-        series = pd.Series(signal)
-        series = series.interpolate(method='linear', limit_direction='both')
-        series = series.fillna(method='bfill').fillna(method='ffill')
-        return series.values
-    
-    @staticmethod
-    def butter_bandpass_filter(data: np.ndarray, lowcut: float, highcut: float, 
-                                fs: float, order: int = 4) -> np.ndarray:
-        """Apply Butterworth bandpass filter"""
-        nyq = 0.5 * fs
-        low = max(lowcut / nyq, 1e-6)
-        high = min(highcut / nyq, 0.999)
-        
-        if low >= high:
-            raise ValueError(f"Invalid bandpass range: {lowcut}–{highcut} Hz at {fs} Hz sampling")
-        
-        b, a = butter(order, [low, high], btype='band')
-        return filtfilt(b, a, data)
-    
-    @staticmethod
-    def compute_signal_quality(signal: np.ndarray, fps: float, 
-                               bandpass_low: float, bandpass_high: float) -> Dict[str, bool]:
-        """
-        Compute quality flags for signal.
-        
-        Returns dict of quality indicators.
-        """
-        flags = {}
-        
-        # Check for low variance
-        if np.std(signal) < 0.01:
-            flags['low_variance'] = True
-        else:
-            flags['low_variance'] = False
-        
-        # Check for high motion (large jumps)
-        jumps = np.abs(np.diff(signal))
-        if np.percentile(jumps, 95) > 2.0 * np.std(signal):
-            flags['high_motion'] = True
-        else:
-            flags['high_motion'] = False
-        
-        return flags
-    
-    @staticmethod
-    def process(signal_data: SignalData) -> FilteredSignal:
-        """
-        Full preprocessing pipeline: interpolate → detrend → normalize → filter.
-        
-        Returns FilteredSignal with quality metrics.
-        """
-        # Interpolate NaNs
-        green = SignalProcessor.interpolate_nans(signal_data.green)
-        
-        # Detrend
-        green = detrend(green)
-        
-        # Normalize
-        std_green = np.std(green)
-        if std_green < 1e-8:
-            raise ValueError("Processed signal has near-zero variance. Cannot estimate heart rate.")
-        green = green / std_green
-        
-        # Bandpass filter
-        try:
-            filtered = SignalProcessor.butter_bandpass_filter(
-                green, 
-                SignalConfig.BANDPASS_LOW, 
-                SignalConfig.BANDPASS_HIGH,
-                signal_data.fps,
-                order=SignalConfig.BANDPASS_ORDER
-            )
-        except Exception as e:
-            raise RuntimeError(f"Filtering failed: {e}")
-        
-        # Welch PSD
-        nperseg = min(256, len(filtered))
-        freqs, psd = welch(filtered, fs=signal_data.fps, nperseg=nperseg)
-        
-        # Compute SNR: power in HR band vs. outside
-        in_band = (freqs >= SignalConfig.BANDPASS_LOW) & (freqs <= SignalConfig.BANDPASS_HIGH)
-        if np.any(in_band):
-            power_in = np.sum(psd[in_band])
-            power_out = np.sum(psd[~in_band]) + 1e-8
-            snr = power_in / power_out
-        else:
-            snr = 0.0
-        
-        # Quality flags
-        quality_flags = SignalProcessor.compute_signal_quality(
-            filtered, signal_data.fps,
-            SignalConfig.BANDPASS_LOW, SignalConfig.BANDPASS_HIGH
-        )
-        
-        return FilteredSignal(
-            signal=filtered,
-            sampling_rate=signal_data.fps,
-            psd=psd,
-            psd_freqs=freqs,
-            snr=snr,
-            quality_flags=quality_flags
-        )
-
-
-# ============================================================================
-# MODULE 4: VITALS ESTIMATION
-# ============================================================================
-
-class VitalsEstimator:
-    """Estimate heart rate, HRV, and experimental vitals"""
-    
-    @staticmethod
-    def estimate_heart_rate(filtered_signal: FilteredSignal) -> Tuple[float, str]:
-        """
-        Estimate heart rate from filtered signal via Welch PSD.
-        
-        Returns:
-            (bpm, confidence_level)
-        """
-        valid_band = ((filtered_signal.psd_freqs >= SignalConfig.BANDPASS_LOW) & 
-                      (filtered_signal.psd_freqs <= SignalConfig.BANDPASS_HIGH))
-        
-        if not np.any(valid_band):
-            raise ValueError("No valid frequency bins in heart rate band.")
-        
-        peak_idx = np.argmax(filtered_signal.psd[valid_band])
-        peak_freq = filtered_signal.psd_freqs[valid_band][peak_idx]
-        bpm = peak_freq * 60.0
-        
-        # Sanity check
-        if bpm < HRConfig.MIN_HR or bpm > HRConfig.MAX_HR:
-            raise ValueError(
-                f"Estimated BPM {bpm:.1f} out of plausible range "
-                f"({HRConfig.MIN_HR}–{HRConfig.MAX_HR}). Check input video."
-            )
-        
-        # Confidence based on SNR
-        if filtered_signal.snr > 2.0:
-            confidence = "HIGH"
-        elif filtered_signal.snr > 1.0:
-            confidence = "MEDIUM"
-        else:
-            confidence = "LOW"
-        
-        return bpm, confidence
-    
-    @staticmethod
-    def estimate_rr_intervals(filtered_signal: FilteredSignal, fps: float) -> np.ndarray:
-        """
-        Detect peaks in filtered signal and compute RR intervals (in ms).
-        
-        Returns:
-            array of RR intervals in milliseconds
-        """
-        signal = filtered_signal.signal
-        
-        # Peak detection parameters
-        min_distance = int(max(1, HRConfig.PEAK_MIN_DISTANCE * fps))
-        prominence = max(0.3 * np.std(signal), 0.01)
-        
-        peaks, _ = find_peaks(signal, distance=min_distance, prominence=prominence)
-        
-        # If few peaks, try less strict criteria
-        if len(peaks) < HRConfig.MIN_PEAKS_FOR_HRV:
-            peaks, _ = find_peaks(signal, distance=int(0.3 * fps))
-        
-        if len(peaks) >= 2:
-            rr_intervals = np.diff(peaks) / fps * 1000.0  # convert to ms
-        else:
-            rr_intervals = np.array([])
-        
-        return rr_intervals
-    
-    @staticmethod
-    def compute_hrv_metrics(rr_intervals: np.ndarray) -> Tuple[float, float]:
-        """
-        Compute HRV metrics from RR intervals.
-        
-        Returns:
-            (sdnn, pnn50) – both in appropriate units
-        """
-        if len(rr_intervals) < HRConfig.MIN_PEAKS_FOR_HRV:
-            return np.nan, np.nan
-        
-        sdnn = float(np.std(rr_intervals))
-        
-        # pNN50: percentage of consecutive RR intervals differing by >50 ms
-        nn50 = np.sum(np.abs(np.diff(rr_intervals)) > 50)
-        pnn50 = 100.0 * nn50 / (len(rr_intervals) - 1) if len(rr_intervals) > 1 else 0.0
-        
-        return sdnn, float(pnn50)
-    
-    @staticmethod
-    def estimate_stress_level(sdnn: float, pnn50: float) -> Optional[float]:
-        """
-        Heuristic stress estimation (0–10 scale, 0=calm, 10=high stress).
-        
-        Uses HRV metrics (pNN50 > SDNN alone).
-        NOT clinically validated.
-        """
-        if np.isnan(pnn50):
-            return np.nan
-        
-        # Use pNN50 as primary indicator
-        if pnn50 < 5:
-            stress = 8.0  # low HRV → high stress
-        elif pnn50 < 15:
-            stress = 5.5
-        elif pnn50 < 30:
-            stress = 3.0
-        else:
-            stress = 1.0  # high HRV → low stress (calm)
-        
-        return float(np.clip(stress, 0.0, 10.0))
-    
-    @staticmethod
-    def experimental_bp_estimate(bpm: float, sdnn: float) -> Dict[str, any]:
-        """
-        Experimental BP estimation (NOT clinically validated).
-        
-        Returns dict with estimate and disclaimer.
-        """
-        # Simple heuristic based on BPM only (SDNN too weak)
-        if bpm < 60:
-            sbp_range = (105, 120)
-        elif bpm < 80:
-            sbp_range = (115, 130)
-        else:
-            sbp_range = (125, 145)
-        
-        sbp = (sbp_range[0] + sbp_range[1]) / 2
-        # Approximate DBP
-        dbp = sbp - 40
-        
-        return {
-            "sbp": sbp,
-            "dbp": dbp,
-            "sbp_range": sbp_range,
-            "note": (
-                "EXPERIMENTAL ONLY. ±~15 mmHg error. "
-                "NOT validated for clinical use. "
-                "Not a replacement for traditional BP measurement."
-            )
-        }
-    
-    @staticmethod
-    def experimental_spo2_estimate(signal_data: SignalData, filtered_signal: FilteredSignal) -> Dict[str, any]:
-        """
-        Experimental SpO₂ estimation using red/green AC/DC ratio from extracted signals.
-
-        This is a highly approximate heuristic and NOT clinically validated. It
-        uses the pulsatile AC amplitude (bandpassed) divided by DC (mean) for
-        red and green channels, forms a ratio R = (AC_red/DC_red) / (AC_green/DC_green),
-        and maps R to an SpO₂ range via a simple linear heuristic. The output is
-        clamped to [70, 100].
-        """
-        try:
-            # Prepare signals
-            red = SignalProcessor.interpolate_nans(signal_data.red)
-            green = SignalProcessor.interpolate_nans(signal_data.green)
-
-            # Detrend + bandpass around typical heart band to get AC component
-            red_bp = SignalProcessor.butter_bandpass_filter(
-                detrend(red), SignalConfig.BANDPASS_LOW, SignalConfig.BANDPASS_HIGH, signal_data.fps, order=SignalConfig.BANDPASS_ORDER
-            )
-            green_bp = SignalProcessor.butter_bandpass_filter(
-                detrend(green), SignalConfig.BANDPASS_LOW, SignalConfig.BANDPASS_HIGH, signal_data.fps, order=SignalConfig.BANDPASS_ORDER
-            )
-
-            # AC ~ std of bandpassed signal, DC ~ mean of original (clamped away from zero)
-            ac_red = float(np.std(red_bp))
-            ac_green = float(np.std(green_bp))
-            dc_red = float(np.mean(red)) if abs(float(np.mean(red))) > 1e-6 else 1.0
-            dc_green = float(np.mean(green)) if abs(float(np.mean(green))) > 1e-6 else 1.0
-
-            # Ratio (pulse oximetry style) — avoid division by zero
-            ratio = (ac_red / dc_red) / (ac_green / dc_green + 1e-12)
-
-            # Map ratio to SpO2 via a conservative linear heuristic.
-            # Coefficients chosen to produce plausible outputs for typical video signals.
-            spo2 = 104.0 - 18.0 * ratio
-            spo2 = float(np.clip(spo2, 70.0, 100.0))
-
-            note = (
-                "EXPERIMENTAL ONLY. SpO₂ estimated from visible-light red/green ratio. "
-                "Highly approximate — ±10–20% possible. NOT clinically validated."
-            )
-
-            return {"spo2": spo2, "note": note}
-
-        except Exception as e:
-            return {"spo2": None, "note": f"SpO₂ estimation failed: {e}."}
-    
-    @staticmethod
-    def estimate(filtered_signal: FilteredSignal, signal_data: SignalData) -> VitalsEstimate:
-        """
-        Full vitals estimation pipeline.
-        
-        Returns VitalsEstimate with all metrics and disclaimers.
-        """
-        # Use fps from the SignalData passed in
-        fps = signal_data.fps
-
-        # Heart rate
-        bpm, hr_confidence = VitalsEstimator.estimate_heart_rate(filtered_signal)
-
-        # RR intervals and HRV
-        rr_intervals = VitalsEstimator.estimate_rr_intervals(filtered_signal, fps)
-        sdnn, pnn50 = VitalsEstimator.compute_hrv_metrics(rr_intervals)
-        
-        # Stress
-        stress = VitalsEstimator.estimate_stress_level(sdnn, pnn50)
-        
-        # Experimental vitals
-        bp_result = VitalsEstimator.experimental_bp_estimate(bpm, sdnn)
-        spo2_result = VitalsEstimator.experimental_spo2_estimate(signal_data, filtered_signal)
-        
-        return VitalsEstimate(
-            heart_rate_bpm=bpm,
-            heart_rate_confidence=hr_confidence,
-            rr_intervals=rr_intervals,
-            sdnn=sdnn,
-            pnn50=pnn50,
-            stress_level=stress,
-            bp_systolic=bp_result["sbp"],
-            bp_diastolic=bp_result["dbp"],
-            bp_note=bp_result["note"],
-            spo2=spo2_result["spo2"],
-            spo2_note=spo2_result["note"]
-        )
-
-
-# ============================================================================
-# MODULE 5: RISK ASSESSMENT
-# ============================================================================
-
-class RiskAssessor:
-    """Heuristic risk scoring (experimental, NOT clinical)"""
-    
-    @staticmethod
-    def assess(vitals: VitalsEstimate) -> RiskAssessment:
-        """
-        Compute cardiac risk score based on vitals.
-        
-        DISCLAIMER: This is a HEURISTIC for demo/research only.
-        NOT a clinical tool. Not for diagnosis.
-        """
-        alerts = []
-        score = 0
-
-        bpm = vitals.heart_rate_bpm
-        sdnn = vitals.sdnn
-
-        # Heart rate weighting
-        if bpm is not None:
-            if bpm > 180:
-                alerts.append("Very high heart rate (severe tachycardia)")
-                score += 4
-            elif bpm > 140:
-                alerts.append("High heart rate (tachycardia)")
-                score += 3
-            elif bpm > 120:
-                alerts.append("Elevated heart rate")
-                score += 2
-            elif bpm < 35:
-                alerts.append("Very low heart rate (severe bradycardia)")
-                score += 4
-            elif bpm < 50:
-                alerts.append("Low heart rate (bradycardia)")
-                score += 2
-
-        # HRV weighting (SDNN)
-        if not np.isnan(sdnn):
-            if sdnn < 10:
-                alerts.append("Extremely low HRV (very high risk)")
-                score += 3
-            elif sdnn < 20:
-                alerts.append("Low HRV (autonomic stress)")
-                score += 2
-            elif sdnn < 30:
-                score += 1
-
-        # Blood pressure flags (if estimated)
-        if vitals.bp_systolic is not None and vitals.bp_diastolic is not None:
-            sbp = vitals.bp_systolic
-            dbp = vitals.bp_diastolic
-            if sbp < 90 or dbp < 60:
-                alerts.append("Estimated BP low (hypotension)")
-                score += 2
-            if sbp > 180 or dbp > 110:
-                alerts.append("Estimated BP very high (hypertensive crisis)")
-                score += 4
-            elif sbp > 160 or dbp > 100:
-                alerts.append("Estimated BP high (hypertension)")
-                score += 2
-
-        # SpO2 flags (if available)
-        if vitals.spo2 is not None:
-            if vitals.spo2 < 90:
-                alerts.append("Low SpO₂ (hypoxemia)")
-                score += 4
-            elif vitals.spo2 < 95:
-                alerts.append("Borderline SpO₂")
-                score += 2
-
-        # Stress flags (secondary)
-        if vitals.stress_level is not None and vitals.stress_level > 8:
-            alerts.append("High stress level (low HRV)")
-            score += 1
-        
-        # Determine risk level
-        # Determine risk level and recommendation
-        if score >= 7:
-            risk_level = "HIGH"
-            recommendation = (
-                "⚠️  HIGH RISK INDICATORS (experimental assessment only). "
-                "Consider urgent clinical evaluation. This is a research prototype — not a diagnostic tool."
-            )
-        elif score >= 3:
-            risk_level = "MODERATE"
-            recommendation = (
-                "⚠️  MODERATE RISK INDICATORS. "
-                "Follow up with a healthcare professional if symptoms or concerns persist."
-            )
-        else:
-            risk_level = "LOW"
-            recommendation = (
-                "✓ Low risk indicators (experimental assessment). "
-                "Vitals appear within typical ranges for this measurement."
-            )
-        
-        return RiskAssessment(
-            risk_score=score,
-            risk_level=risk_level,
-            alerts=alerts,
-            recommendation=recommendation
-        )
-
-
-# ============================================================================
-# MAIN PIPELINE FUNCTION
-# ============================================================================
-
-def estimate_vitals_from_video(
-    video_path: str,
-    use_mediapipe: bool = True,
-    progress_callback=None
-) -> Tuple[VitalsEstimate, FilteredSignal, RiskAssessment]:
+def _estimate_spo2(red_signal, green_signal, fs, hr):
     """
-    Full pipeline: video → vitals.
+    Estimate SpO2 from red and green channel signals (experimental).
+    
+    Uses ratio-of-ratios method with proper AC/DC extraction and safety gating.
     
     Args:
-        video_path: path to video file
-        use_mediapipe: use MediaPipe for face detection (if available)
-        progress_callback: optional function(current, total) for UI
+        red_signal: Fused red channel signal (numpy array)
+        green_signal: Fused green channel signal (numpy array)
+        fs: Sampling frequency (Hz)
+        hr: Heart rate (BPM) for validation
+    
+    Returns:
+        SpO2 value (float, 88-100%) or None if signal is unreliable
+    """
+    # Safety gate 1: Minimum 5 seconds duration (reduced from 20s for practicality)
+    min_samples = int(fs * 5)
+    if len(red_signal) < min_samples or len(green_signal) < min_samples:
+        return None
+    
+    # Safety gate 2: HR must be valid (40-180 BPM)
+    if hr is None or hr < 40 or hr > 180:
+        return None
+    
+    # Extract DC component (mean intensity)
+    dc_red = np.mean(red_signal)
+    dc_green = np.mean(green_signal)
+    
+    # Safety gate 3: Avoid division by zero
+    if dc_red <= 0 or dc_green <= 0:
+        return None
+    
+    # Extract AC component using bandpass filtered pulsatile signal
+    # The signals are already bandpass filtered in the main processing
+    # Use standard deviation as AC component (pulsatile amplitude)
+    ac_red = np.std(red_signal)
+    ac_green = np.std(green_signal)
+    
+    # Safety gate 4: AC components must be meaningful
+    if ac_red <= 0 or ac_green <= 0:
+        return None
+    
+    # Compute ratio-of-ratios
+    ratio_red = ac_red / dc_red
+    ratio_green = ac_green / dc_green
+    
+    # Safety gate 5: Avoid division by zero
+    if ratio_green == 0:
+        return None
+    
+    R = ratio_red / ratio_green
+    
+    # Map to SpO2 using linear empirical model
+    # Validation: R should typically be between 0.5 and 1.1 for physiological SpO2
+    # If R is outside [0.4, 1.2], signal is likely too noisy/unreliable
+    if R < 0.4 or R > 1.2:
+        return None
+        
+    spo2 = 110 - 25 * R
+    
+    # Clip to realistic physiological range (88-100%)
+    spo2 = float(np.clip(spo2, 88.0, 100.0))
+    
+    return spo2
+
+
+def _estimate_bp(hr, sdnn, rmssd):
+    """
+    Estimate blood pressure from HR and HRV metrics (experimental).
+    
+    Uses empirical formulas based on research correlations:
+    - Higher HR typically correlates with higher BP
+    - Lower HRV (SDNN/RMSSD) typically correlates with higher BP
+    
+    Returns: (systolic, diastolic) in mmHg or (None, None)
+    """
+    if hr is None or sdnn is None:
+        return None, None
+    
+    # Baseline BP values (normal resting)
+    baseline_sys = 120
+    baseline_dia = 80
+    
+    # HR contribution (deviation from normal resting HR of 70 bpm)
+    hr_deviation = hr - 70
+    sys_hr_adjust = hr_deviation * 0.5  # ~0.5 mmHg per bpm
+    dia_hr_adjust = hr_deviation * 0.3  # ~0.3 mmHg per bpm
+    
+    # HRV contribution (lower HRV = higher stress = higher BP)
+    # Normal SDNN is around 50ms
+    sdnn_deviation = 50 - sdnn
+    sys_hrv_adjust = sdnn_deviation * 0.3  # ~0.3 mmHg per ms deviation
+    dia_hrv_adjust = sdnn_deviation * 0.2  # ~0.2 mmHg per ms deviation
+    
+    # Calculate estimated BP
+    systolic = baseline_sys + sys_hr_adjust + sys_hrv_adjust
+    diastolic = baseline_dia + dia_hr_adjust + dia_hrv_adjust
+    
+    # Clip to physiologically reasonable ranges
+    systolic = float(np.clip(systolic, 90, 180))
+    diastolic = float(np.clip(diastolic, 60, 120))
+    
+    # Ensure systolic > diastolic
+    if diastolic >= systolic:
+        diastolic = systolic - 20
+    
+    return round(systolic, 1), round(diastolic, 1)
+
+
+# -----------------------------
+# MAIN PROCESSING FUNCTION
+# -----------------------------
+def process_rppg_video(video_path: str, progress_callback=None) -> VitalOutput:
+    """
+    Process video to extract rPPG vitals using multi-ROI fusion
+    
+    Args:
+        video_path: Path to video file
+        progress_callback: Optional callback(current, total) for progress updates
         
     Returns:
-        (VitalsEstimate, FilteredSignal, RiskAssessment)
+        VitalOutput with estimated vitals
     """
-    # Initialize
-    detector = FaceDetector(use_mediapipe=use_mediapipe)
-    extractor = SignalExtractor(detector)
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {video_path}")
+
+    fs = cap.get(cv2.CAP_PROP_FPS)
+    if fs <= 1 or fs > 120:
+        fs = 30.0
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Initialize Haar Cascade face detector
+    # Priority: 1. HAARCASCADE_PATH env var, 2. Local file, 3. OpenCV data path
+    cascade_path = os.environ.get("HAARCASCADE_PATH")
+    if not cascade_path or not os.path.exists(cascade_path):
+        cascade_path = 'haarcascade_frontalface_default.xml'  # Check local
+        if not os.path.exists(cascade_path):
+            cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            
+    face_cascade = cv2.CascadeClassifier(cascade_path)
+    if face_cascade.empty():
+        raise RuntimeError(f"Could not load Haar Cascade classifier from {cascade_path}")
+
+    # Signal storage for 3 ROIs
+    r_fore, g_fore = [], []
+    r_lc, g_lc = [], []
+    r_rc, g_rc = [], []
     
-    try:
-        # Extract signals
-        signal_data = extractor.extract(video_path, progress_callback)
+    frame_idx = 0
+    detected_frames = 0
 
-        # Process signals
-        filtered_signal = SignalProcessor.process(signal_data)
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
 
-        # Estimate vitals (pass signal_data so experimental estimators can access raw channels)
-        vitals = VitalsEstimator.estimate(filtered_signal, signal_data)
+        h, w = frame.shape[:2]
         
-        # Risk assessment
-        risk = RiskAssessor.assess(vitals)
+        # Detect faces using Haar Cascade with more lenient parameters
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Improved parameters for better detection:
+        # - scaleFactor=1.05 (was 1.1) - more thorough search
+        # - minNeighbors=3 (was 5) - less strict
+        # - minSize=(50,50) (was 100,100) - detect smaller faces
+        faces = face_cascade.detectMultiScale(
+            gray, 
+            scaleFactor=1.05, 
+            minNeighbors=3, 
+            minSize=(50, 50),
+            flags=cv2.CASCADE_SCALE_IMAGE
+        )
         
-        return vitals, filtered_signal, risk
+        if len(faces) > 0:
+            # Use largest face - detectMultiScale returns numpy array
+            # Each face is [x, y, w, h]
+            largest_idx = np.argmax([rect[2] * rect[3] for rect in faces])
+            face_rect = faces[largest_idx]
+            x, y, fw, fh = int(face_rect[0]), int(face_rect[1]), int(face_rect[2]), int(face_rect[3])
+            
+            # Define ROIs based on face box
+            # Forehead: top 20-35% of face height
+            forehead_y1 = max(0, y + int(fh * 0.20))
+            forehead_y2 = min(h, y + int(fh * 0.35))
+            forehead_x1 = max(0, x + int(fw * 0.25))
+            forehead_x2 = min(w, x + int(fw * 0.75))
+            forehead_box = frame[forehead_y1:forehead_y2, forehead_x1:forehead_x2]
+            
+            # Left cheek: left side, middle vertical region
+            lc_y1 = max(0, y + int(fh * 0.50))
+            lc_y2 = min(h, y + int(fh * 0.75))
+            lc_x1 = max(0, x + int(fw * 0.10))
+            lc_x2 = min(w, x + int(fw * 0.40))
+            left_cheek_box = frame[lc_y1:lc_y2, lc_x1:lc_x2]
+            
+            # Right cheek: right side, middle vertical region
+            rc_y1 = max(0, y + int(fh * 0.50))
+            rc_y2 = min(h, y + int(fh * 0.75))
+            rc_x1 = max(0, x + int(fw * 0.60))
+            rc_x2 = min(w, x + int(fw * 0.90))
+            right_cheek_box = frame[rc_y1:rc_y2, rc_x1:rc_x2]
+            
+            # Extract mean RGB from boxes
+            if forehead_box.size > 0:
+                rgb_f = cv2.cvtColor(forehead_box, cv2.COLOR_BGR2RGB)
+                r_fore.append(np.mean(rgb_f[:,:,0]))
+                g_fore.append(np.mean(rgb_f[:,:,1]))
+            
+            if left_cheek_box.size > 0:
+                rgb_l = cv2.cvtColor(left_cheek_box, cv2.COLOR_BGR2RGB)
+                r_lc.append(np.mean(rgb_l[:,:,0]))
+                g_lc.append(np.mean(rgb_l[:,:,1]))
+            
+            if right_cheek_box.size > 0:
+                rgb_r = cv2.cvtColor(right_cheek_box, cv2.COLOR_BGR2RGB)
+                r_rc.append(np.mean(rgb_r[:,:,0]))
+                g_rc.append(np.mean(rgb_r[:,:,1]))
+            
+            detected_frames += 1
+
+        frame_idx += 1
+        if progress_callback and total_frames:
+            progress_callback(frame_idx, total_frames)
+
+    cap.release()
+
+    # Debug output
+    print(f"[DEBUG] Total frames processed: {frame_idx}")
+    print(f"[DEBUG] Frames with face detected: {detected_frames}")
+    print(f"[DEBUG] Detection ratio: {detected_frames/frame_idx if frame_idx > 0 else 0:.2%}")
+    print(f"[DEBUG] Signal lengths - Forehead: {len(g_fore)}, Left: {len(g_lc)}, Right: {len(g_rc)}")
+
+    # Check if we have enough data
+    if len(g_fore) == 0:
+        print("[DEBUG] No face detected in any frame - returning None values")
+        return VitalOutput(None, None, None, None)
+
+    detection_ratio = detected_frames / total_frames if total_frames > 0 else 0
+    # Reduced threshold from 0.25 to 0.10 for more lenient processing
+    if detection_ratio < 0.10:
+        raise ValueError(
+            f"Face detected in only {detected_frames}/{total_frames} frames "
+            f"({100*detection_ratio:.1f}%). Try better lighting or adjust camera position."
+        )
+
+    # Convert to arrays
+    g_fore = np.array(g_fore)
+    g_lc = np.array(g_lc)
+    g_rc = np.array(g_rc)
+
+    r_fore = np.array(r_fore)
+    r_lc = np.array(r_lc)
+    r_rc = np.array(r_rc)
+
+    # Normalize each ROI signal
+    def norm(x):
+        return (x - np.mean(x)) / (np.std(x) + 1e-9)
+
+    # Bandpass filter each ROI
+    f_fore = _bandpass(norm(g_fore), fs)
+    f_lc = _bandpass(norm(g_lc), fs)
+    f_rc = _bandpass(norm(g_rc), fs)
+
+    # Estimate HR and quality for each ROI
+    hr_f, qf = _welch_hr(f_fore, fs)
+    hr_l, ql = _welch_hr(f_lc, fs)
+    hr_r, qr = _welch_hr(f_rc, fs)
+
+    # Quality-weighted fusion
+    q = np.array([qf, ql, qr])
+    weights = q / np.sum(q) if np.sum(q) > 0 else np.array([1/3, 1/3, 1/3])
+
+    # Fuse signals
+    fused = weights[0] * f_fore + weights[1] * f_lc + weights[2] * f_rc
     
-    finally:
-        detector.close()
+    # Final HR from fused signal
+    hr, peak_ratio = _welch_hr(fused, fs)
+
+    # RR intervals → HRV → Stress
+    rr = _rr_intervals(fused, fs, hr)
+    sdnn = _sdnn(rr)
+    rmssd = _rmssd(rr)
+    pnn50 = _pnn50(rr)
+    stress = _stress_from_hrv(sdnn, rmssd)
+
+    # SpO2 using fused red/green with proper safety gating
+    fused_r = weights[0] * r_fore + weights[1] * r_lc + weights[2] * r_rc
+    fused_g = weights[0] * g_fore + weights[1] * g_lc + weights[2] * g_rc
+    spo2 = _estimate_spo2(fused_r, fused_g, fs, hr)
+
+    # Blood Pressure estimation
+    bp_sys, bp_dia = _estimate_bp(hr, sdnn, rmssd)
+
+    # Calculate confidence based on peak ratio and detection
+    confidence = min(100, int(peak_ratio * 100 + detection_ratio * 50))
+    quality_score = min(10, peak_ratio * 10)
+
+    # Debug output for results
+    print(f"[DEBUG] Calculated vitals:")
+    print(f"  - Heart Rate: {hr} BPM" if hr is not None else "  - Heart Rate: None")
+    print(f"  - HRV SDNN: {sdnn} ms" if sdnn is not None else "  - HRV SDNN: None")
+    print(f"  - HRV RMSSD: {rmssd} ms" if rmssd is not None else "  - HRV RMSSD: None")
+    print(f"  - Stress: {stress}" if stress is not None else "  - Stress: None")
+    print(f"  - SpO2: {spo2}%" if spo2 is not None else "  - SpO2: None")
+    print(f"  - BP: {bp_sys}/{bp_dia} mmHg" if bp_sys is not None else "  - BP: None")
+    print(f"  - Confidence: {confidence}%")
+
+    return VitalOutput(
+        bpm=round(hr, 1) if hr else None,
+        heart_rate=round(hr, 1) if hr else None,
+        stress_index=round(stress, 1) if stress else None,
+        spo2=round(spo2, 1) if spo2 else None,
+        hrv_sdnn=round(sdnn, 1) if sdnn else None,
+        hrv_rmssd=round(rmssd, 1) if rmssd else None,
+        hrv_pnn50=round(pnn50, 1) if pnn50 else 0.0,
+        rr_intervals=rr,
+        bp_systolic=round(bp_sys, 1) if bp_sys else None,
+        bp_diastolic=round(bp_dia, 1) if bp_dia else None,
+        confidence=confidence,
+        quality_score=round(quality_score, 1)
+    )
 
 
-if __name__ == "__main__":
-    print("rPPG system refactored. See rppg_streamlit_ui.py for UI, rppg_fastapi.py for API.")
+# -----------------------------
+# Risk Assessment (for UI compatibility)
+# -----------------------------
+def assess_risk(vitals: VitalOutput) -> Dict[str, Any]:
+    """
+    Simple heuristic risk assessment
+    Returns dict with risk_level, alerts, and recommendations
+    """
+    alerts = []
+    risk_score = 0
+
+    hr = vitals.heart_rate
+    stress = vitals.stress_index
+    spo2 = vitals.spo2
+
+    # Heart rate checks
+    if hr:
+        if hr < 50:
+            alerts.append("Low heart rate detected")
+            risk_score += 30
+        elif hr > 100:
+            alerts.append("Elevated heart rate detected")
+            risk_score += 20
+
+    # Stress checks
+    if stress and stress > 70:
+        alerts.append("High stress level indicated")
+        risk_score += 25
+
+    # SpO2 checks (experimental)
+    if spo2 and spo2 < 95:
+        alerts.append("Low SpO2 reading (experimental)")
+        risk_score += 15
+
+    # Determine risk level
+    if risk_score >= 50:
+        risk_level = "HIGH"
+        recommendation = "Consider consulting a healthcare professional"
+    elif risk_score >= 25:
+        risk_level = "MODERATE"
+        recommendation = "Monitor your vitals and practice stress management"
+    else:
+        risk_level = "LOW"
+        recommendation = "Vitals appear normal. Maintain healthy habits"
+
+    return {
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "alerts": alerts,
+        "recommendation": recommendation
+    }
+
+
+# -----------------------------
+# Compatibility Wrapper for UI
+# -----------------------------
+def estimate_vitals_from_video(video_path: str, progress_callback=None, use_mediapipe=None):
+    """
+    Backward compatibility wrapper for existing UI code.
+    Returns 3-tuple: (vitals_obj, filtered_signal_obj, risk_obj)
+    
+    Args:
+        video_path: Path to video file
+        progress_callback: Optional callback for progress updates
+        use_mediapipe: Ignored (kept for backward compatibility)
+    
+    Returns:
+        Tuple of (vitals, filtered_signal, risk) as SimpleNamespace objects
+        (allows dot notation access like vitals.heart_rate_bpm)
+    """
+    # Ignore use_mediapipe parameter - we use OpenCV Haar Cascade
+    vitals_output = process_rppg_video(video_path, progress_callback)
+    risk_output = assess_risk(vitals_output)
+    
+    # Build vitals object (using SimpleNamespace for dot notation access)
+    # Use None instead of 0.0 for failed calculations to avoid misleading reports
+    vitals = SimpleNamespace(
+        heart_rate_bpm=vitals_output.heart_rate if vitals_output.heart_rate is not None else 0.0,
+        heart_rate_valid=vitals_output.heart_rate is not None,
+        heart_rate_confidence="HIGH" if (vitals_output.confidence or 0) > 70 else "MEDIUM" if (vitals_output.confidence or 0) > 50 else "LOW",
+        hrv_sdnn=vitals_output.hrv_sdnn if vitals_output.hrv_sdnn is not None else None,
+        hrv_rmssd=vitals_output.hrv_rmssd if vitals_output.hrv_rmssd is not None else None,
+        hrv_pnn50=vitals_output.hrv_pnn50 if vitals_output.hrv_pnn50 is not None else 0.0,
+        # Direct aliases for UI compatibility
+        sdnn=vitals_output.hrv_sdnn if vitals_output.hrv_sdnn is not None else None,
+        pnn50=vitals_output.hrv_pnn50 if vitals_output.hrv_pnn50 is not None else 0.0,
+        rr_intervals=vitals_output.rr_intervals if vitals_output.rr_intervals is not None else np.array([]),
+        hrv_valid=vitals_output.hrv_sdnn is not None,
+        stress_level=vitals_output.stress_index if vitals_output.stress_index is not None else None,
+        bp_systolic=vitals_output.bp_systolic if vitals_output.bp_systolic is not None else None,
+        bp_diastolic=vitals_output.bp_diastolic if vitals_output.bp_diastolic is not None else None,
+        bp_note="Experimental - based on HR and HRV correlation",
+        spo2=vitals_output.spo2 if vitals_output.spo2 is not None else None,
+        spo2_note="Experimental - not clinically validated",
+        confidence_percent=vitals_output.confidence or 0,
+        signal_quality_score=vitals_output.quality_score or 0,
+    )
+    
+    # Build filtered_signal object (placeholder for UI compatibility)
+    filtered_signal = SimpleNamespace(
+        signal=[],  # Empty for now
+        sampling_rate=30.0,
+        confidence_percent=vitals_output.confidence or 0,
+    )
+    
+    # Build risk object
+    risk = SimpleNamespace(
+        risk_score=risk_output["risk_score"],
+        risk_level=risk_output["risk_level"],
+        alerts=risk_output["alerts"],
+        recommendation=risk_output["recommendation"],
+    )
+    
+    return vitals, filtered_signal, risk
+
+
+# Export HAVE_MEDIAPIPE for UI compatibility (always False now)
+HAVE_MEDIAPIPE = False

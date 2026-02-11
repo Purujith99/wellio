@@ -64,9 +64,17 @@ class SessionData:
 
 
 def get_storage_base_path() -> Path:
-    """Get the base storage directory for all sessions"""
-    home = Path.home()
-    storage_path = home / ".wellio" / "sessions"
+    """
+    Get the base storage directory for all sessions.
+    Priority: 1. WELLIO_STORAGE_DIR env var, 2. ~/.wellio/sessions
+    """
+    env_path = os.environ.get("WELLIO_STORAGE_DIR")
+    if env_path:
+        storage_path = Path(env_path)
+    else:
+        home = Path.home()
+        storage_path = home / ".wellio" / "sessions"
+        
     storage_path.mkdir(parents=True, exist_ok=True)
     return storage_path
 

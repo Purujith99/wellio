@@ -172,8 +172,7 @@ def generate_health_report(session: SessionData, lang: str = "en") -> bytes:
          f"{session.bp_systolic:.0f}/{session.bp_diastolic:.0f} mmHg" if session.bp_systolic else "N/A",
          get_bp_label(session.bp_systolic) if session.bp_systolic else "N/A"],
         ["SpO₂", f"{session.spo2:.1f}%" if session.spo2 else "N/A",
-         get_spo2_label(session.spo2) if session.spo2 else "N/A"],
-        ["HRV (SDNN)", f"{session.hrv_sdnn:.1f} ms", f"{session.rr_intervals_count} beats analyzed"]
+         get_spo2_label(session.spo2) if session.spo2 else "N/A"]
     ]
     
     vitals_table = Table(vitals_data, colWidths=[2*inch, 2*inch, 2.5*inch])
@@ -262,9 +261,11 @@ def generate_health_report(session: SessionData, lang: str = "en") -> bytes:
         elements.append(Spacer(1, 0.1*inch))
     
     # ========================================================================
-    # SIGNAL VISUALIZATIONS
+    # SIGNAL VISUALIZATIONS - REMOVED
     # ========================================================================
     
+    # Section removed as requested
+    """
     if session.signal_plot or session.hrv_plot:
         elements.append(PageBreak())
         elements.append(Paragraph("Signal Analysis", heading_style))
@@ -288,6 +289,7 @@ def generate_health_report(session: SessionData, lang: str = "en") -> bytes:
                 elements.append(Spacer(1, 0.2*inch))
             except Exception as e:
                 print(f"Error embedding HRV plot: {e}")
+    """
     
     # ========================================================================
     # DISCLAIMER

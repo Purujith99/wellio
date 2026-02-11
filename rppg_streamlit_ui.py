@@ -677,20 +677,20 @@ if HAVE_HISTORY:
 
 
 
-# Signal Processing
-with st.sidebar.expander(t("signal_processing_sidebar"), expanded=False):
-    bandpass_low = st.slider(t("bandpass_low"), 0.5, 1.5, 0.75, 0.05, key="bandpass_low")
-    bandpass_high = st.slider(t("bandpass_high"), 2.0, 4.0, 3.0, 0.1, key="bandpass_high")
+# REMOVED: Signal Processing settings
+# with st.sidebar.expander(t("signal_processing_sidebar"), expanded=False):
+#     bandpass_low = st.slider(t("bandpass_low"), 0.5, 1.5, 0.75, 0.05, key="bandpass_low")
+#     bandpass_high = st.slider(t("bandpass_high"), 2.0, 4.0, 3.0, 0.1, key="bandpass_high")
 
-# Face Detection
-with st.sidebar.expander(t("face_detection_sidebar"), expanded=False):
-    detection_scale = st.slider(t("detection_scale"), 1.05, 1.50, 1.10, 0.05, key="detection_scale")
-    min_neighbors = st.slider(t("min_neighbors"), 2, 10, 5, 1, key="min_neighbors")
+# REMOVED: Face Detection settings
+# with st.sidebar.expander(t("face_detection_sidebar"), expanded=False):
+#     detection_scale = st.slider(t("detection_scale"), 1.05, 1.50, 1.10, 0.05, key="detection_scale")
+#     min_neighbors = st.slider(t("min_neighbors"), 2, 10, 5, 1, key="min_neighbors")
 
-# Lighting Adjustments
-with st.sidebar.expander(t("lighting_adjustments_sidebar"), expanded=False):
-    enhance_contrast = st.checkbox(t("enhance_contrast"), value=False, key="enhance_contrast")
-    apply_denoising = st.checkbox(t("apply_denoising"), value=False, key="apply_denoising")
+# REMOVED: Lighting Adjustments settings
+# with st.sidebar.expander(t("lighting_adjustments_sidebar"), expanded=False):
+#     enhance_contrast = st.checkbox(t("enhance_contrast"), value=False, key="enhance_contrast")
+#     apply_denoising = st.checkbox(t("apply_denoising"), value=False, key="apply_denoising")
 
 # ============================================================================
 # MAIN APP
@@ -734,11 +734,13 @@ if HAVE_HISTORY and st.session_state.get("viewing_history", False):
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric(t("estimated_pulse"), f"{session.heart_rate:.1f} BPM",
+                hr_val = f"{session.heart_rate:.1f} BPM" if session.heart_rate is not None else t("na")
+                st.metric(t("estimated_pulse"), hr_val,
                          help=f"{t('confidence')}: {session.heart_rate_confidence}")
             
             with col2:
-                st.metric(t("stress_index"), f"{session.stress_level:.1f}",
+                stress_val = f"{session.stress_level:.1f}" if session.stress_level is not None else t("na")
+                st.metric(t("stress_index"), stress_val,
                          help=t("experimental_stress"))
             
             with col3:
@@ -821,7 +823,9 @@ if HAVE_HISTORY and st.session_state.get("viewing_history", False):
                 if session.hrv_plot:
                     st.subheader(f"💓 {t('hrv_title')}")
                     st.image(base64_to_image(session.hrv_plot), caption=t("rr_interval_analysis"))
-                    st.info(f"**{t('hrv_summary')}:** SDNN: {session.hrv_sdnn:.1f} ms | pNN50: {session.hrv_pnn50:.1f}% | {t('beats_detected')}: {session.rr_intervals_count}")
+                    sdnn_disp = f"{session.hrv_sdnn:.1f}" if session.hrv_sdnn is not None else "N/A"
+                    pnn50_disp = f"{session.hrv_pnn50:.1f}" if session.hrv_pnn50 is not None else "N/A"
+                    st.info(f"**{t('hrv_summary')}:** SDNN: {sdnn_disp} ms | pNN50: {pnn50_disp}% | {t('beats_detected')}: {session.rr_intervals_count}")
             
             # PDF Download for historical session
             st.divider()
@@ -1465,6 +1469,8 @@ if uploaded_file is not None or recorded_file_path is not None:
             else:
                 # Restore results
                 vitals, filtered_signal, risk = st.session_state["analysis_results"]
+                risk_score = risk.risk_score
+                risk_level = risk.risk_level
             
             # Add button to start new analysis
             col1, col2, col3 = st.columns([1, 2, 1])
@@ -1528,7 +1534,7 @@ if uploaded_file is not None or recorded_file_path is not None:
             
             # Stress Index (0–10) — Experimental
             with col2:
-                if not np.isnan(vitals.stress_level):
+                if vitals.stress_level is not None:
                     st.metric(
                         t("stress_index"),
                         f"{vitals.stress_level:.1f}",
@@ -1948,7 +1954,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                             summary_text += t("audio_hr").format(value=f"{vitals.heart_rate_bpm:.0f}") + " "
                             
                             # Check if stress is valid
-                            if not np.isnan(vitals.stress_level):
+                            if vitals.stress_level is not None:
                                 summary_text += t("audio_stress").format(value=f"{vitals.stress_level:.1f}") + " "
                             
                             if vitals.bp_systolic is not None and vitals.bp_diastolic is not None:
@@ -2010,85 +2016,90 @@ if uploaded_file is not None or recorded_file_path is not None:
             st.divider()
             
             # ================================================================
-            # SIGNAL VISUALIZATIONS
+            # SIGNAL VISUALIZATIONS - COMMENTED OUT
             # ================================================================
             
-            st.subheader("📈 Signal Processing & Analysis")
+            # REMOVED: Signal Processing & Analysis section
+            # This section has been disabled as it requires additional signal data
+            # that is not currently provided by the backend
             
-            # Main plots
-            fig, axs = plt.subplots(2, 1, figsize=(12, 8))
+            # st.subheader("📈 Signal Processing & Analysis")
+            # 
+            # # Main plots
+            # fig, axs = plt.subplots(2, 1, figsize=(12, 8))
+            # 
+            # # Filtered signal
+            # axs[0].plot(filtered_signal.signal, linewidth=1.5, color='green', alpha=0.8)
+            # axs[0].fill_between(range(len(filtered_signal.signal)), 
+            #                    filtered_signal.signal, alpha=0.2, color='green')
+            # axs[0].set_title("Filtered PPG Signal (Green Channel)", fontsize=12, fontweight='bold')
+            # axs[0].set_xlabel("Frame")
+            # axs[0].set_ylabel("Normalized Intensity")
+            # axs[0].grid(True, alpha=0.3)
+            # 
+            # # Power spectrum
+            # valid_band = ((filtered_signal.psd_freqs >= 0.75) & 
+            #              (filtered_signal.psd_freqs <= 3.0))
+            # axs[1].semilogy(filtered_signal.psd_freqs, filtered_signal.psd, 
+            #                linewidth=1.5, color='blue', label='PSD')
+            # peak_freq = vitals.heart_rate_bpm / 60.0
+            # axs[1].axvline(peak_freq, color='red', linestyle='--', linewidth=2, 
+            #                label=f'Peak ≈ {vitals.heart_rate_bpm:.1f} BPM')
+            # axs[1].set_title("Power Spectral Density (Welch)", fontsize=12, fontweight='bold')
+            # axs[1].set_xlabel("Frequency (Hz)")
+            # axs[1].set_ylabel("Power (log scale)")
+            # axs[1].legend()
+            # axs[1].grid(True, alpha=0.3, which='both')
+            # axs[1].set_xlim([0, 4])
+            # 
+            # st.pyplot(fig)
+            # 
+            # # RR histogram
+            # if vitals.rr_intervals.size > 0:
+            #     st.subheader("💓 Heart Rate Variability (RR Intervals)")
+            #     
+            #     fig2, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+            #     
+            #     # Histogram
+            #     ax1.hist(vitals.rr_intervals, bins=max(5, len(vitals.rr_intervals)//3), 
+            #             color='steelblue', edgecolor='black', alpha=0.7)
+            #     ax1.set_title("RR Interval Distribution", fontweight='bold')
+            #     ax1.set_xlabel("RR Interval (ms)")
+            #     ax1.set_ylabel("Frequency")
+            #     ax1.grid(True, alpha=0.3)
+            #     
+            #     # Time series
+            #     ax2.plot(vitals.rr_intervals, marker='o', linestyle='-', 
+            #             color='darkgreen', markersize=4, linewidth=1)
+            #     ax2.set_title("RR Intervals Over Time", fontweight='bold')
+            #     ax2.set_xlabel("Beat #")
+            #     ax2.set_ylabel("RR Interval (ms)")
+            #     ax2.grid(True, alpha=0.3)
+            #     
+            #     st.pyplot(fig2)
+            #     
+            #     st.info(f"""
+            #     **HRV Summary:**
+            #     - **# of beats detected:** {len(vitals.rr_intervals) + 1}
+            #     - **SDNN (std dev):** {vitals.sdnn:.1f} ms
+            #     - **Mean RR:** {np.mean(vitals.rr_intervals):.0f} ms
+            #     - **pNN50:** {vitals.pnn50:.1f}%
+            #     """)
+            # else:
+            #     st.warning("⚠️  Not enough beats detected for HRV analysis. Try a longer or clearer video.")
+            # 
+            # # Advanced plots
+            # if show_advanced:
+            #     st.subheader("🔬 Advanced Signal Quality Metrics")
+            #     
+            #     col1, col2 = st.columns(2)
+            #     with col1:
+            #         st.metric("Signal-to-Noise Ratio (SNR)", f"{filtered_signal.snr:.2f}", 
+            #                  help="Higher is better. >2.0 = good, 1.0–2.0 = moderate, <1.0 = poor")
+            #     with col2:
+            #         quality_flags = ", ".join([f"{k}={v}" for k, v in filtered_signal.quality_flags.items()])
+            #         st.write(f"**Quality Flags:** {quality_flags}")
             
-            # Filtered signal
-            axs[0].plot(filtered_signal.signal, linewidth=1.5, color='green', alpha=0.8)
-            axs[0].fill_between(range(len(filtered_signal.signal)), 
-                               filtered_signal.signal, alpha=0.2, color='green')
-            axs[0].set_title("Filtered PPG Signal (Green Channel)", fontsize=12, fontweight='bold')
-            axs[0].set_xlabel("Frame")
-            axs[0].set_ylabel("Normalized Intensity")
-            axs[0].grid(True, alpha=0.3)
-            
-            # Power spectrum
-            valid_band = ((filtered_signal.psd_freqs >= 0.75) & 
-                         (filtered_signal.psd_freqs <= 3.0))
-            axs[1].semilogy(filtered_signal.psd_freqs, filtered_signal.psd, 
-                           linewidth=1.5, color='blue', label='PSD')
-            peak_freq = vitals.heart_rate_bpm / 60.0
-            axs[1].axvline(peak_freq, color='red', linestyle='--', linewidth=2, 
-                           label=f'Peak ≈ {vitals.heart_rate_bpm:.1f} BPM')
-            axs[1].set_title("Power Spectral Density (Welch)", fontsize=12, fontweight='bold')
-            axs[1].set_xlabel("Frequency (Hz)")
-            axs[1].set_ylabel("Power (log scale)")
-            axs[1].legend()
-            axs[1].grid(True, alpha=0.3, which='both')
-            axs[1].set_xlim([0, 4])
-            
-            st.pyplot(fig)
-            
-            # RR histogram
-            if vitals.rr_intervals.size > 0:
-                st.subheader("💓 Heart Rate Variability (RR Intervals)")
-                
-                fig2, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-                
-                # Histogram
-                ax1.hist(vitals.rr_intervals, bins=max(5, len(vitals.rr_intervals)//3), 
-                        color='steelblue', edgecolor='black', alpha=0.7)
-                ax1.set_title("RR Interval Distribution", fontweight='bold')
-                ax1.set_xlabel("RR Interval (ms)")
-                ax1.set_ylabel("Frequency")
-                ax1.grid(True, alpha=0.3)
-                
-                # Time series
-                ax2.plot(vitals.rr_intervals, marker='o', linestyle='-', 
-                        color='darkgreen', markersize=4, linewidth=1)
-                ax2.set_title("RR Intervals Over Time", fontweight='bold')
-                ax2.set_xlabel("Beat #")
-                ax2.set_ylabel("RR Interval (ms)")
-                ax2.grid(True, alpha=0.3)
-                
-                st.pyplot(fig2)
-                
-                st.info(f"""
-                **HRV Summary:**
-                - **# of beats detected:** {len(vitals.rr_intervals) + 1}
-                - **SDNN (std dev):** {vitals.sdnn:.1f} ms
-                - **Mean RR:** {np.mean(vitals.rr_intervals):.0f} ms
-                - **pNN50:** {vitals.pnn50:.1f}%
-                """)
-            else:
-                st.warning("⚠️  Not enough beats detected for HRV analysis. Try a longer or clearer video.")
-            
-            # Advanced plots
-            if show_advanced:
-                st.subheader("🔬 Advanced Signal Quality Metrics")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Signal-to-Noise Ratio (SNR)", f"{filtered_signal.snr:.2f}", 
-                             help="Higher is better. >2.0 = good, 1.0–2.0 = moderate, <1.0 = poor")
-                with col2:
-                    quality_flags = ", ".join([f"{k}={v}" for k, v in filtered_signal.quality_flags.items()])
-                    st.write(f"**Quality Flags:** {quality_flags}")
             
             # ================================================================
             # SESSION CAPTURE & PDF DOWNLOAD
@@ -2104,6 +2115,13 @@ if uploaded_file is not None or recorded_file_path is not None:
                     height_m = st.session_state.get("profile_height", 170) / 100.0
                     weight_kg = st.session_state.get("profile_weight", 70)
                     bmi = weight_kg / (height_m ** 2)
+                    
+                    # Ensure vitals object is up to date with needed attributes
+                    if not hasattr(vitals, 'sdnn'): vitals.sdnn = getattr(vitals, 'hrv_sdnn', 0.0)
+                    if not hasattr(vitals, 'pnn50'): vitals.pnn50 = getattr(vitals, 'hrv_pnn50', 0.0)
+                    if not hasattr(vitals, 'rr_intervals'): vitals.rr_intervals = np.array([])
+                    if not hasattr(vitals, 'heart_rate_bpm'): vitals.heart_rate_bpm = getattr(vitals, 'heart_rate', 0.0)
+                    if not hasattr(vitals, 'stress_level'): vitals.stress_level = getattr(vitals, 'stress_index', 0.0)
                     
                     # Get AI insights if available
                     if HAVE_GEMINI and 'insights' in locals():
@@ -2155,9 +2173,9 @@ if uploaded_file is not None or recorded_file_path is not None:
                         recommendations=recommendations,
                         symptoms_to_watch=symptoms_to_watch,
                         
-                        # Visualizations (convert to base64)
-                        signal_plot=fig_to_base64(fig),
-                        hrv_plot=fig_to_base64(fig2) if vitals.rr_intervals.size > 0 else None
+                        # Visualizations (disabled by user request)
+                        signal_plot=None,
+                        hrv_plot=None
                     )
                     
                     # Save session
