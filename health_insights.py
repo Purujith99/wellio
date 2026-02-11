@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Export GROQ_API_KEY for use in other modules
+# Export GROQ_API_KEY placeholder for backward compatibility
+# It is better to use os.getenv() directly inside functions
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
@@ -206,9 +207,12 @@ def get_health_insights(
     """
     
     try:
-        # Use GROQ_API_KEY constant if no api_key provided
+        # Use provided api_key or get from environment
         if api_key is None:
-            api_key = GROQ_API_KEY
+            api_key = os.getenv("GROQ_API_KEY")
+        
+        if not api_key:
+            raise ValueError("The api_key client option must be set. Please check your GROQ_API_KEY in .env")
         
         # Initialize Groq client
         client = Groq(api_key=api_key)

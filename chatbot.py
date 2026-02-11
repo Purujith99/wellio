@@ -324,7 +324,7 @@ def format_context_for_prompt(context: ChatContext) -> str:
 def generate_chatbot_response(
     user_message: str,
     context: ChatContext,
-    groq_api_key: str,
+    groq_api_key: Optional[str] = None,
     lang: str = "en"
 ) -> ChatMessage:
     """
@@ -375,6 +375,18 @@ IMPORTANT INSTRUCTION: You must respond in {lang_name}.
 Please provide a helpful, informative response based on the user's data and question. Remember to follow all the rules in your system prompt."""
     
     try:
+        import os
+        if groq_api_key is None:
+            groq_api_key = os.getenv("GROQ_API_KEY")
+            
+        if not groq_api_key:
+             return ChatMessage(
+                role="assistant",
+                content="Groq API key not found. Please check your configuration.",
+                timestamp=datetime.now().isoformat(),
+                risk_level="low"
+            )
+
         client = Groq(api_key=groq_api_key)
         
         response = client.chat.completions.create(

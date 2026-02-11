@@ -33,7 +33,7 @@ from rppg_refactored import (
     HAVE_MEDIAPIPE
 )
 try:
-    from health_insights import get_health_insights, GROQ_API_KEY
+    from health_insights import get_health_insights
     HAVE_GEMINI = True
 except ImportError as e:
     print(f"Warning: Could not import health_insights: {e}")
@@ -1288,7 +1288,8 @@ if HAVE_CHATBOT and HAVE_GEMINI:
                         )
                         
                         # Generate response
-                        response = generate_chatbot_response(user_input, context, GROQ_API_KEY, lang=get_current_language())
+                        # Pass None for api_key to use dynamic environment retrieval
+                        response = generate_chatbot_response(user_input, context, None, lang=get_current_language())
                         
                         # Display response
                         st.write(response.content)
