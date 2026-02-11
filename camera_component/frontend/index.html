@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Wellio Camera Component</title>
+    <script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@1.3.0/dist/index.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+
+        #camera-container {
+            position: relative;
+            width: 100%;
+            height: 450px;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #guide {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 45%;
+            height: 60%;
+            border: 3px dashed rgba(255, 255, 255, 0.4);
+            border-radius: 50% / 50%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #record-btn {
+            position: absolute;
+            bottom: 30px;
+            background: #FF4B4B;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 20;
+            font-size: 16px;
+        }
+
+        #record-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #status {
+            position: absolute;
+            top: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 5px 15px;
+            border-radius: 15px;
+            font-size: 14px;
+            z-index: 20;
+        }
+
+        #progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 5px;
+            background: #FF4B4B;
+            width: 0%;
+            transition: width 0.1s linear;
+            z-index: 30;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="camera-container">
+        <div id="status">Initializing Camera...</div>
+        <video id="webcam" autoplay playsinline muted></video>
+        <div id="guide"></div>
+        <button id="record-btn" disabled>Loading...</button>
+        <div id="progress"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const recordBtn = document.getElementById('record-btn');
+        const status = document.getElementById('status');
+        const progressBar = document.getElementById('progress');
+
+        let stream;
+        let mediaRecorder;
+        let chunks = [];
+        let duration = 15000; // Default
+
+        function sendToStreamlit(value) {
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setComponentValue",
+                value: value
+            }, "*");
+        }
+
+        function onRender(event) {
+            const data = event.data.args;
+            if (data.duration_seconds) {
+                duration = data.duration_seconds * 1000;
+            }
+
+            // Initial Set Height
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: "streamlit:setFrameHeight",
+                height: 450
+            }, "*");
+        }
+
+        async function init() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: 1280, height: 720 },
+                    audio: false
+                });
+                video.srcObject = stream;
+                status.innerText = "Position face in guide";
+                recordBtn.innerText = "Start Recording";
+                recordBtn.disabled = false;
+
+                // Signal Ready
+                window.parent.postMessage({
+                    isStreamlitMessage: true,
+                    type: "streamlit:componentReady",
+                    apiVersion: 1
+                }, "*");
+            } catch (err) {
+                status.innerText = "Camera Error: " + err.message;
+            }
+        }
+
+        recordBtn.onclick = () => {
+            chunks = [];
+            let options = { mimeType: 'video/webm' };
+            if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) {
+                options = { mimeType: 'video/webm;codecs=vp8' };
+            }
+
+            mediaRecorder = new MediaRecorder(stream, options);
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'video/webm' });
+                const reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = () => sendToStreamlit(reader.result);
+                stream.getTracks().forEach(t => t.stop());
+            };
+
+            mediaRecorder.start();
+            recordBtn.disabled = true;
+            recordBtn.innerText = "Recording...";
+            status.innerText = "Stay still for 15s";
+
+            let start = Date.now();
+            let timer = setInterval(() => {
+                let elapsed = Date.now() - start;
+                progressBar.style.width = Math.min((elapsed / duration) * 100, 100) + "%";
+                if (elapsed >= duration) {
+                    clearInterval(timer);
+                    mediaRecorder.stop();
+                }
+            }, 100);
+        };
+
+        window.addEventListener("message", onRender);
+        init();
+    </script>
+</body>
+
+</html>
