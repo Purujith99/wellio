@@ -19,47 +19,7 @@ import mediapipe as mp
 import tempfile
 import os
 
-# --- WebRTC Monkeypatch for Python 3.13 Compatibility ---
-try:
-    import streamlit_webrtc.shutdown
-    # The error 'AttributeError: SessionShutdownObserver object has no attribute _polling_thread'
-    # occurs during shutdown if the thread was never properly started/assigned.
-    if hasattr(streamlit_webrtc.shutdown, "SessionShutdownObserver"):
-        original_stop = streamlit_webrtc.shutdown.SessionShutdownObserver.stop
-        def patched_stop(self):
-            # Check if attribute exists before accessing it
-            if hasattr(self, "_polling_thread") and self._polling_thread is not None:
-                if self._polling_thread.is_alive():
-                    original_stop(self)
-            else:
-                # Silently skip if the thread doesn't exist to avoid AttributeError
-                pass
-        streamlit_webrtc.shutdown.SessionShutdownObserver.stop = patched_stop
-except (ImportError, AttributeError):
-    pass
-# -------------------------------------------------------
-
-# --- WebRTC KeyError Monkeypatch for Python 3.13 Callback Stability ---
-try:
-    import streamlit_webrtc.component
-    
-    # We patch the internal callback that accesses st.session_state
-    if hasattr(streamlit_webrtc.component, "_create_callback"):
-        original_create_callback = streamlit_webrtc.component._create_callback
-        def patched_create_callback(*args, **kwargs):
-            inner_callback = original_create_callback(*args, **kwargs)
-            def safe_callback(*c_args, **c_kwargs):
-                try:
-                    return inner_callback(*c_args, **c_kwargs)
-                except (KeyError, AttributeError):
-                    # Ignore state errors that happen during unmounting/reruns
-                    return None
-            return safe_callback
-        streamlit_webrtc.component._create_callback = patched_create_callback
-except (ImportError, AttributeError):
-    pass
-# ----------------------------------------------------------------------
-
+import os
 
 # =========================
 # Shared State

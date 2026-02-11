@@ -18,6 +18,42 @@ import base64
 from io import BytesIO
 import shutil
 from typing import Optional
+import sys
+
+# ======================================================================
+# WebRTC STABILITY SHIELD (Fixes KeyError and AttributeError on Python 3.13)
+# ======================================================================
+try:
+    import streamlit_webrtc.component as webrtc_comp
+    import streamlit_webrtc.shutdown as webrtc_shut
+    
+    # 1. Protect against 'SessionShutdownObserver' missing '_polling_thread'
+    if hasattr(webrtc_shut, "SessionShutdownObserver"):
+        orig_stop = webrtc_shut.SessionShutdownObserver.stop
+        def safe_stop(self):
+            if hasattr(self, "_polling_thread") and self._polling_thread is not None:
+                try:
+                    if self._polling_thread.is_alive():
+                        orig_stop(self)
+                except AttributeError: pass
+        webrtc_shut.SessionShutdownObserver.stop = safe_stop
+
+    # 2. Protect against KeyError in frontend callbacks (frontend_key missing)
+    orig_component_func = webrtc_comp._component_func
+    def safe_component_func(*args, **kwargs):
+        if "on_change" in kwargs:
+            orig_cb = kwargs["on_change"]
+            def safe_cb(*c_args, **c_kwargs):
+                try:
+                    return orig_cb(*c_args, **c_kwargs)
+                except (KeyError, AttributeError, RuntimeError):
+                    return None
+            kwargs["on_change"] = safe_cb
+        return orig_component_func(*args, **kwargs)
+    webrtc_comp._component_func = safe_component_func
+except Exception:
+    pass # Fallback if library structure changes
+# ======================================================================
 
 # Import translations module
 from translations import get_text, get_available_languages, translate_dynamic, LANGUAGES
