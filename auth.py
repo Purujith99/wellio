@@ -54,18 +54,32 @@ def get_supabase_client() -> Optional[Client]:
     Returns:
         Supabase client or None if credentials not found
     """
-    # Ensure environment is loaded in case it was called early
+    # Priority 1: Environment variables
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     
-    # Retry loading if missing
+    # Priority 2: Hardcoded fallbacks (for cases where env fails to load in Streamlit)
+    if not url:
+        url = "https://omeemjdrzokykheegbnj.supabase.co"
+    if not key:
+        key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tZWVtamRyem9reWtoZWVnYm5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDY5NTIsImV4cCI6MjA4NTYyMjk1Mn0.MoB3aKzb9WKZJ57x_eSZAeECXdfpYkNMYUkbB37DA0I"
+    
+    # Ensure environment is loaded just in case
     if not url or not key:
-        load_dotenv(override=True)
+        from dotenv import find_dotenv
+        env_file = find_dotenv()
+        load_dotenv(env_file, override=True)
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_KEY")
     
     if not url or not key:
-        return None, "Supabase credentials (URL or Key) not found in environment."
+        from dotenv import find_dotenv
+        env_file = find_dotenv()
+        details = f"URL={'found' if url else 'MISSING'}, KEY={'found' if key else 'MISSING'}. "
+        details += f"CWD={os.getcwd()}, .env={env_file or 'NOT FOUND'}. "
+        if env_file and os.path.exists(env_file):
+             details += f"File size={os.path.getsize(env_file)} bytes."
+        return None, f"Supabase credentials not found. {details}"
     
     try:
         return create_client(url, key), None

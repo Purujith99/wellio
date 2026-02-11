@@ -109,12 +109,10 @@ def get_persistent_supabase_client():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     
-    if not url or not key:
-        # Retry loading env if missing
-        from dotenv import load_dotenv
-        load_dotenv(override=True)
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
+    if not url:
+        url = "https://omeemjdrzokykheegbnj.supabase.co"
+    if not key:
+        key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tZWVtamRyem9reWtoZWVnYm5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDY5NTIsImV4cCI6MjA4NTYyMjk1Mn0.MoB3aKzb9WKZJ57x_eSZAeECXdfpYkNMYUkbB37DA0I"
         
     return get_singleton_supabase_client(url, key)
 
