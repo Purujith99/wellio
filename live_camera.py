@@ -39,6 +39,27 @@ except (ImportError, AttributeError):
     pass
 # -------------------------------------------------------
 
+# --- WebRTC KeyError Monkeypatch for Python 3.13 Callback Stability ---
+try:
+    import streamlit_webrtc.component
+    
+    # We patch the internal callback that accesses st.session_state
+    if hasattr(streamlit_webrtc.component, "_create_callback"):
+        original_create_callback = streamlit_webrtc.component._create_callback
+        def patched_create_callback(*args, **kwargs):
+            inner_callback = original_create_callback(*args, **kwargs)
+            def safe_callback(*c_args, **c_kwargs):
+                try:
+                    return inner_callback(*c_args, **c_kwargs)
+                except (KeyError, AttributeError):
+                    # Ignore state errors that happen during unmounting/reruns
+                    return None
+            return safe_callback
+        streamlit_webrtc.component._create_callback = patched_create_callback
+except (ImportError, AttributeError):
+    pass
+# ----------------------------------------------------------------------
+
 
 # =========================
 # Shared State
@@ -287,7 +308,7 @@ def live_camera_interface():
             "- Connection may take 5-10 seconds to establish")
 
     ctx = webrtc_streamer(
-        key="live_camera_v3",
+        key="live_camera_v4_stable",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=rtc_config,
         video_processor_factory=FaceGuidanceProcessor,
