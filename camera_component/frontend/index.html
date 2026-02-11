@@ -47,7 +47,7 @@
         #record-btn {
             position: absolute;
             bottom: 30px;
-            background: #FF4B4B;
+            background: #4A6741;
             color: white;
             border: none;
             padding: 12px 24px;
@@ -56,18 +56,25 @@
             cursor: pointer;
             z-index: 20;
             font-size: 16px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        #record-btn:active {
+            transform: scale(0.95);
         }
 
         #record-btn:disabled {
-            opacity: 0.5;
+            opacity: 0.6;
             cursor: not-allowed;
+            background: #4A6741;
         }
 
         #status {
             position: absolute;
             top: 20px;
             color: white;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(74, 103, 65, 0.8);
             padding: 5px 15px;
             border-radius: 15px;
             font-size: 14px;
@@ -78,8 +85,8 @@
             position: absolute;
             bottom: 0;
             left: 0;
-            height: 5px;
-            background: #FF4B4B;
+            height: 6px;
+            background: #4A6741;
             width: 0%;
             transition: width 0.1s linear;
             z-index: 30;

@@ -94,6 +94,157 @@ st.set_page_config(
 )
 
 # ============================================================================
+# CUSTOM STYLING - SAGE GREEN THEME
+# ============================================================================
+st.markdown("""
+<style>
+/* Global App Background */
+.stApp {
+    background-color: #F5F5F0;
+    color: #2C3E30;
+}
+
+/* Primary Button (Dark Forest Green) */
+div.stButton > button[kind="primary"] {
+    background-color: #4A6741;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(74, 103, 65, 0.2);
+}
+div.stButton > button[kind="primary"]:hover {
+    background-color: #3A5233;
+    box-shadow: 0 6px 12px rgba(74, 103, 65, 0.3);
+    transform: translateY(-1px);
+}
+div.stButton > button[kind="primary"]:focus {
+    color: white !important;
+    background-color: #4A6741 !important;
+}
+
+/* Secondary Button (Outline Style) */
+div.stButton > button[kind="secondary"] {
+    background-color: transparent;
+    color: #4A6741;
+    border: 1px solid #4A6741;
+    border-radius: 12px;
+    font-weight: 600;
+}
+div.stButton > button[kind="secondary"]:hover {
+    background-color: #E8EDE6;
+    border-color: #3A5233;
+    color: #3A5233;
+}
+
+/* Default Button Override */
+div.stButton > button {
+    border-radius: 12px;
+    border: 1px solid #CBD5C0;
+    background-color: white;
+    color: #2C3E30;
+    font-weight: 500;
+}
+div.stButton > button:hover {
+    border-color: #4A6741;
+    color: #4A6741;
+    background-color: #F9F9F7;
+}
+
+/* Input Fields (Text, Number, Select) */
+div[data-testid="stTextInput"] > div > div > input,
+div[data-testid="stNumberInput"] > div > div > input,
+div[data-testid="stSelectbox"] > div > div > div {
+    background-color: #E8EDE6;
+    color: #2C3E30;
+    border-radius: 10px;
+    border: 1px solid #CBD5C0;
+}
+div[data-testid="stTextInput"] > div > div > input:focus,
+div[data-testid="stNumberInput"] > div > div > input:focus {
+    border-color: #4A6741;
+    box-shadow: 0 0 0 1px #4A6741;
+}
+
+/* Text Area */
+div[data-testid="stTextArea"] > div > div > textarea {
+    background-color: #E8EDE6;
+    color: #2C3E30;
+    border-radius: 10px;
+    border: 1px solid #CBD5C0;
+}
+
+/* Sidebar Styling */
+section[data-testid="stSidebar"] {
+    background-color: #E8EDE6;
+    border-right: 1px solid #D6DFD0;
+}
+section[data-testid="stSidebar"] hr {
+    background-color: #D6DFD0;
+}
+
+/* Expander/Cards */
+div[data-testid="stExpander"] {
+    border-radius: 16px;
+    border: 1px solid #D6DFD0;
+    background-color: white;
+    box-shadow: 0 2px 8px rgba(44, 62, 48, 0.03);
+}
+
+/* Metrics */
+div[data-testid="metric-container"] {
+    background-color: white;
+    padding: 1.25rem;
+    border-radius: 16px;
+    border: 1px solid #E0E5DF;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    transition: transform 0.2s ease;
+}
+div[data-testid="metric-container"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.05);
+}
+
+/* Progress Bar */
+div[data-testid="stProgress"] > div > div > div > div {
+    background-color: #4A6741;
+}
+
+/* Form Submit Button Container */
+div[data-testid="stFormSubmitButton"] > button {
+    width: 100%;
+}
+
+/* Headers */
+h1, h2, h3 {
+    color: #1A261C; /* Slightly darker than body text */
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+h4, h5, h6 {
+    color: #4A6741;
+    font-weight: 600;
+}
+
+/* Success/Info/Warning/Error Messages - Muted Tones */
+div[data-testid="stAlert"] {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+/* Hide Streamlit Branding */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header[data-testid="stHeader"] {
+    background-color: #F5F5F0; /* Blend header with background */
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================================
 # AUTHENTICATION FUNCTIONS
 # ============================================================================
 
@@ -786,18 +937,18 @@ if HAVE_HISTORY and st.session_state.get("viewing_history", False):
             
             if session.risk_score <= 3:
                 display_label = t("low_risk")
-                color = "#16a34a"
+                color = "#6B8F71" # Muted Sage Green
             elif session.risk_score <= 6:
                 display_label = t("moderate_risk")
-                color = "#f59e0b"
+                color = "#D4A373" # Muted Earthy Orange
             else:
                 display_label = t("high_risk")
-                color = "#dc2626"
+                color = "#B85C5C" # Muted Terra Cotta Red
             
             st.markdown(
                 f"<div style='display:flex;align-items:center;gap:16px;margin-bottom:20px'>"
-                f"<div style='font-weight:600;font-size:16px'>Risk Score:</div>"
-                f"<div style='font-size:24px;font-weight:700'>{session.risk_score}/10</div>"
+                f"<div style='font-weight:600;font-size:16px;color:#2C3E30'>Risk Score:</div>"
+                f"<div style='font-size:24px;font-weight:700;color:#2C3E30'>{session.risk_score}/10</div>"
                 f"<div style='padding:8px 16px;border-radius:12px;background:{color};color:white;font-weight:700;font-size:16px'>{display_label}</div>"
                 f"</div>", unsafe_allow_html=True
             )
