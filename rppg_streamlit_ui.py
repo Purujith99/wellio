@@ -25,8 +25,15 @@ from live_camera import live_camera_interface, process_recorded_video
 from streamlit_mic_recorder import speech_to_text
 from dotenv import load_dotenv
 
-# Load env vars
+# Load environment variables
 load_dotenv(override=True)
+
+# Explicit Injection of Supabase Credentials for maximum reliability on Streamlit Cloud
+if not os.environ.get("SUPABASE_URL"):
+    os.environ["SUPABASE_URL"] = "https://omeemjdrzokykheegbnj.supabase.co"
+if not os.environ.get("SUPABASE_KEY"):
+    os.environ["SUPABASE_KEY"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tZWVtamRyem9reWtoZWVnYm5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDY5NTIsImV4cCI6MjA4NTYyMjk1Mn0.MoB3aKzb9WKZJ57x_eSZAeECXdfpYkNMYUkbB37DA0I"
+
 
 from rppg_refactored import (
     estimate_vitals_from_video,

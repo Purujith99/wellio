@@ -19,6 +19,26 @@ import mediapipe as mp
 import tempfile
 import os
 
+# --- WebRTC Monkeypatch for Python 3.13 Compatibility ---
+try:
+    import streamlit_webrtc.shutdown
+    # The error 'AttributeError: SessionShutdownObserver object has no attribute _polling_thread'
+    # occurs during shutdown if the thread was never properly started/assigned.
+    if hasattr(streamlit_webrtc.shutdown, "SessionShutdownObserver"):
+        original_stop = streamlit_webrtc.shutdown.SessionShutdownObserver.stop
+        def patched_stop(self):
+            # Check if attribute exists before accessing it
+            if hasattr(self, "_polling_thread") and self._polling_thread is not None:
+                if self._polling_thread.is_alive():
+                    original_stop(self)
+            else:
+                # Silently skip if the thread doesn't exist to avoid AttributeError
+                pass
+        streamlit_webrtc.shutdown.SessionShutdownObserver.stop = patched_stop
+except (ImportError, AttributeError):
+    pass
+# -------------------------------------------------------
+
 
 # =========================
 # Shared State
@@ -267,7 +287,7 @@ def live_camera_interface():
             "- Connection may take 5-10 seconds to establish")
 
     ctx = webrtc_streamer(
-        key="live_camera_stable",
+        key="live_camera_v3",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=rtc_config,
         video_processor_factory=FaceGuidanceProcessor,
