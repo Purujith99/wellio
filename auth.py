@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 
 # ============================================================================
@@ -54,8 +54,15 @@ def get_supabase_client() -> Optional[Client]:
     Returns:
         Supabase client or None if credentials not found
     """
+    # Ensure environment is loaded in case it was called early
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
+    
+    # Retry loading if missing
+    if not url or not key:
+        load_dotenv(override=True)
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_KEY")
     
     if not url or not key:
         print("Warning: Supabase credentials not found in environment variables")

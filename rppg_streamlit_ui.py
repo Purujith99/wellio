@@ -89,17 +89,34 @@ st.set_page_config(
 # ============================================================================
 
 @st.cache_resource
-def get_singleton_supabase_client():
+def get_singleton_supabase_client(url, key):
     """
-    Get a singleton Supabase client instance.
-    This persists across reruns and sessions for the same server process.
+    Get a singleton Supabase client instance based on url/key.
     Required for PKCE flow to maintain the code verifier.
     """
-    return get_supabase_client()
+    if not url or not key:
+        return None
+    try:
+        from supabase import create_client
+        return create_client(url, key)
+    except Exception as e:
+        print(f"Error creating Supabase client: {e}")
+        return None
 
 def get_persistent_supabase_client():
-    """Wrapper to get the singleton client"""
-    return get_singleton_supabase_client()
+    """Wrapper to get the singleton client with current environment vars"""
+    # Try to get from environment first
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    
+    if not url or not key:
+        # Retry loading env if missing
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_KEY")
+        
+    return get_singleton_supabase_client(url, key)
 
 def handle_oauth_callback():
     """Check for OAuth code in query params and exchange for session"""

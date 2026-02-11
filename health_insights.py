@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Export GROQ_API_KEY placeholder for backward compatibility
 # It is better to use os.getenv() directly inside functions
