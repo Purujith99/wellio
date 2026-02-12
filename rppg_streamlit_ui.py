@@ -30,11 +30,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv(override=True)
 
-# Explicit Injection of Supabase Credentials for maximum reliability on Streamlit Cloud
-if not os.environ.get("SUPABASE_URL"):
-    os.environ["SUPABASE_URL"] = "https://omeemjdrzokykheegbnj.supabase.co"
-if not os.environ.get("SUPABASE_KEY"):
-    os.environ["SUPABASE_KEY"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tZWVtamRyem9reWtoZWVnYm5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDY5NTIsImV4cCI6MjA4NTYyMjk1Mn0.MoB3aKzb9WKZJ57x_eSZAeECXdfpYkNMYUkbB37DA0I"
+# Explicit Injection of Supabase Credentials REMOVED
+# Ensure SUPABASE_URL and SUPABASE_KEY are in your .env file or environment variables
 
 
 from rppg_refactored import (
@@ -270,9 +267,9 @@ def get_persistent_supabase_client():
     key = os.environ.get("SUPABASE_KEY")
     
     if not url:
-        url = "https://omeemjdrzokykheegbnj.supabase.co"
+        pass # Rely on get_singleton_supabase_client's checks or downstream errors
     if not key:
-        key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tZWVtamRyem9reWtoZWVnYm5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDY5NTIsImV4cCI6MjA4NTYyMjk1Mn0.MoB3aKzb9WKZJ57x_eSZAeECXdfpYkNMYUkbB37DA0I"
+        pass
         
     return get_singleton_supabase_client(url, key)
 

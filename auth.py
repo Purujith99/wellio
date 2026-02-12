@@ -58,11 +58,10 @@ def get_supabase_client() -> Optional[Client]:
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     
-    # Priority 2: Hardcoded fallbacks (for cases where env fails to load in Streamlit)
-    if not url:
-        url = "https://omeemjdrzokykheegbnj.supabase.co"
-    if not key:
-        key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9tZWVtamRyem9reWtoZWVnYm5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNDY5NTIsImV4cCI6MjA4NTYyMjk1Mn0.MoB3aKzb9WKZJ57x_eSZAeECXdfpYkNMYUkbB37DA0I"
+    
+    # Priority 2: Hardcoded fallbacks REMOVED for security
+    # Keys must be provided via environment variables or .env file
+
     
     # Ensure environment is loaded just in case
     if not url or not key:
