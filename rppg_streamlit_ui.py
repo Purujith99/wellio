@@ -721,21 +721,24 @@ if HAVE_AUTH and check_authentication():
     with col1:
         if st.session_state["is_editing_name"]:
             new_name = st.text_input("Edit Name", value=user_name, label_visibility="collapsed")
-            if st.button("Save", key="save_name_btn"):
-                if new_name and len(new_name.strip()) >= 2:
-                    success, msg = update_user_name(user_email, new_name)
-                    if success:
-                        st.session_state["user_name"] = new_name.strip()
-                        st.session_state["is_editing_name"] = False
-                        st.success("Name updated!")
-                        st.rerun()
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.button("Save", key="save_name_btn", use_container_width=True):
+                    if new_name and len(new_name.strip()) >= 2:
+                        success, msg = update_user_name(user_email, new_name)
+                        if success:
+                            st.session_state["user_name"] = new_name.strip()
+                            st.session_state["is_editing_name"] = False
+                            st.success("Name updated!")
+                            st.rerun()
+                        else:
+                            st.error(msg)
                     else:
-                        st.error(msg)
-                else:
-                    st.error("Invalid name")
-            if st.button("Cancel", key="cancel_edit_btn"):
-                st.session_state["is_editing_name"] = False
-                st.rerun()
+                        st.error("Invalid name")
+            with col_cancel:
+                if st.button("Cancel", key="cancel_edit_btn", use_container_width=True):
+                    st.session_state["is_editing_name"] = False
+                    st.rerun()
         else:
             st.write(f"👤 **{user_name}**")
             
