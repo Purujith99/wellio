@@ -1687,14 +1687,15 @@ if recording_mode == "live":
     st.caption(t("live_recording_subtitle"))
     
     # Use the refactored bidirectional camera component
-    base64_video = camera_component(duration_seconds=15, key="live_v5_stable")
-    
-    if base64_video and not st.session_state.get("recorded_file_path"):
-        video_path = save_camera_video(base64_video)
-        if video_path:
-            st.session_state["recorded_file_path"] = video_path
-            st.success("✅ Video recorded successfully!")
-            st.rerun() # Refresh to trigger analysis with the new file
+    if not st.session_state.get("recorded_file_path"):
+        base64_video = camera_component(duration_seconds=15, key="live_v5_stable")
+        
+        if base64_video:
+            video_path = save_camera_video(base64_video)
+            if video_path:
+                st.session_state["recorded_file_path"] = video_path
+                st.success("✅ Video recorded successfully!")
+                st.rerun() # Refresh to trigger analysis with the new file
         
     # Status display
     if not recorded_file_path:
