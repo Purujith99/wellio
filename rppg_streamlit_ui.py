@@ -330,7 +330,7 @@ def handle_oauth_callback():
 
 # Call immediately after page config
 if HAVE_AUTH:
-    handle_oauth_callback()
+    pass # handle_oauth_callback() # Google Login Removed
 
 def check_authentication() -> bool:
     """Check if user is authenticated"""
@@ -444,42 +444,7 @@ def show_login_page():
                     else:
                         st.error(f"❌ {message}")
 
-    # Google Sign-In Button (must be outside form)
-    st.markdown(
-        """
-        <div style="text-align: center; color: #666; margin: 10px 0; font-size: 0.9em;">
-            OR
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-    
-    # dynamic_redirect_url = os.environ.get("APP_URL", "http://localhost:8502")
-    
-    if st.button(f"🔵 {t('login_button')} with Google", use_container_width=True):
-            # Generate URL only on button click to match code_verifier
-            try:
-                supabase = get_persistent_supabase_client()
-                if supabase:
-                    # Use the configured APP_URL or default to 8502
-                    redirect_url = os.environ.get("APP_URL", "http://localhost:8502")
-                    
-                    data = supabase.auth.sign_in_with_oauth({
-                        "provider": "google",
-                        "options": {
-                            "redirect_to": redirect_url
-                        }
-                    })
-                    
-                    if data and data.url:
-                        # Javascript redirect for smoother experience
-                        st.markdown(f'<meta http-equiv="refresh" content="0;url={data.url}">', unsafe_allow_html=True)
-                        # Fallback link
-                        st.markdown(f'[Click here to continue with Google]({data.url})')
-                else:
-                    st.error("Database connection error")
-            except Exception as e:
-                st.error(f"Error initializing Google Login: {e}")
+    # Google Sign-In REMOVED
     
     st.divider()
     st.info(f"💡 {t('new_to_wellio')}")
