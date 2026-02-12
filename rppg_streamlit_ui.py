@@ -819,10 +819,12 @@ if HAVE_HISTORY:
     
     # List recent sessions
     if session_count > 0:
+        # Always fetch recent sessions, display only top 3
         sessions = list_sessions(username, limit=10)
+        sessions_to_display = sessions[:3]  # Show only top 3
         
         st.sidebar.caption(f"{t('recent_analyses')}")
-        for session in sessions:
+        for session in sessions_to_display:
             try:
                 timestamp_dt = datetime.fromisoformat(session.timestamp)
                 timestamp_str = timestamp_dt.strftime("%d %b %Y · %I:%M %p")
@@ -834,6 +836,14 @@ if HAVE_HISTORY:
             if st.sidebar.button(button_label, key=f"hist_{session.session_id}"):
                 st.session_state["selected_session_id"] = session.session_id
                 st.session_state["viewing_history"] = True
+                st.rerun()
+        
+        # Show "View Past Records" button if there are more than 3 sessions
+        if session_count > 3:
+            if st.sidebar.button("📋 View Past Records", use_container_width=True, type="secondary"):
+                st.session_state["viewing_all_history"] = True
+                st.session_state["viewing_history"] = False
+                st.session_state["viewing_trends"] = False
                 st.rerun()
     else:
         st.sidebar.info(t("no_history"))
@@ -976,13 +986,13 @@ if HAVE_HISTORY and st.session_state.get("viewing_history", False):
                 
                 with col_1:
                     if session.recommendations:
-                        with st.expander(f"💪 {t('recommendations_title')}", expanded=True):
+                        with st.expander(f"💪 {t('recommendations_title')}"):
                             for rec in session.recommendations:
                                 st.write(f"• {rec}")
                 
                 with col_2:
                     if session.symptoms_to_watch:
-                        with st.expander(f"🚨 {t('symptoms_watch_title')}"):
+                        with st.expander(f"🚨 {t('symptoms_watch_title')}", expanded=True):
                             for symptom in session.symptoms_to_watch:
                                 st.write(f"• {symptom}")
                 
@@ -1306,6 +1316,105 @@ if HAVE_HISTORY and st.session_state.get("viewing_trends", False):
         plt.close()
     
     st.stop()  # Don't show upload section when viewing trends
+
+
+# ============================================================================
+# ALL HISTORY VIEW
+# ============================================================================
+
+if HAVE_HISTORY and st.session_state.get("viewing_all_history", False):
+    username = get_current_user_email() or "default_user"
+    
+    # Header
+    st.title(f"📜 {t('history_sidebar_title')}")
+    st.caption("Browse all your past health analyses")
+    
+    # Navigation
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button(f"🏠 {t('back_to_home')}", type="secondary"):
+            st.session_state["viewing_all_history"] = False
+            st.rerun()
+    
+    st.divider()
+    
+    # Get all sessions
+    session_count = get_session_count(username)
+    
+    if session_count == 0:
+        st.info(t("no_history"))
+        st.stop()
+    
+    # Fetch all sessions (limit to 50 for performance)
+    sessions = list_sessions(username, limit=50)
+    
+    st.subheader(f"📊 Total Sessions: {session_count}")
+    st.caption(f"Showing {len(sessions)} most recent analyses")
+    
+    st.divider()
+    
+    # Display sessions in a grid layout
+    for idx, session in enumerate(sessions):
+        try:
+            timestamp_dt = datetime.fromisoformat(session.timestamp)
+            timestamp_str = timestamp_dt.strftime("%d %B %Y · %I:%M %p")
+            date_badge = timestamp_dt.strftime("%d %b %Y")
+            time_badge = timestamp_dt.strftime("%I:%M %p")
+        except:
+            timestamp_str = "Unknown date"
+            date_badge = "N/A"
+            time_badge = "N/A"
+        
+        # Create card for each session
+        with st.container():
+            col1, col2, col3 = st.columns([2, 3, 1])
+            
+            with col1:
+                st.markdown(f"### 📅 {date_badge}")
+                st.caption(f"🕐 {time_badge}")
+            
+            with col2:
+                # Display vital signs preview
+                hr_val = f"{session.heart_rate:.1f} BPM" if session.heart_rate is not None else "N/A"
+                stress_val = f"{session.stress_level:.1f}/10" if session.stress_level is not None else "N/A"
+                
+                st.markdown(f"**❤️ HR:** {hr_val} | **😰 Stress:** {stress_val}")
+                
+                if session.bp_systolic and session.bp_diastolic:
+                    st.caption(f"🩺 BP: {session.bp_systolic:.0f}/{session.bp_diastolic:.0f} mmHg")
+                
+                # Risk badge
+                if session.risk_score <= 3:
+                    risk_label = t("low_risk")
+                    risk_color = "#6B8F71"
+                elif session.risk_score <= 6:
+                    risk_label = t("moderate_risk")
+                    risk_color = "#D4A373"
+                else:
+                    risk_label = t("high_risk")
+                    risk_color = "#B85C5C"
+                
+                st.markdown(
+                    f"<span style='padding:4px 12px;border-radius:8px;background:{risk_color};color:white;font-weight:600;font-size:12px'>"
+                    f"Risk: {session.risk_score}/10 - {risk_label}</span>",
+                    unsafe_allow_html=True
+                )
+            
+            with col3:
+                if st.button("📋 View Details", key=f"view_sess_{session.session_id}", type="primary", use_container_width=True):
+                    st.session_state["selected_session_id"] = session.session_id
+                    st.session_state["viewing_history"] = True
+                    st.session_state["viewing_all_history"] = False
+                    st.rerun()
+            
+            st.divider()
+    
+    # Show message if there are more records
+    if session_count > 50:
+        st.info(f"ℹ️ Showing 50 most recent sessions. You have {session_count - 50} more older records.")
+    
+    st.stop()  # Don't show upload section when viewing all history
+
 
 
 # ============================================================================
@@ -2090,7 +2199,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                                     else:
                                         st.info(t("maintain_healthy_habits"))
                             with col_2:
-                                with st.expander(f"🚨 {t('symptoms_watch_title')}"):
+                                with st.expander(f"🚨 {t('symptoms_watch_title')}", expanded=True):
                                     if insights.symptoms_to_watch:
                                         for symptom in insights.symptoms_to_watch:
                                             st.write(f"• {symptom}")
