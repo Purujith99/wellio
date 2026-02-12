@@ -59,8 +59,26 @@ def get_supabase_client() -> Optional[Client]:
     key = os.environ.get("SUPABASE_KEY")
     
     
-    # Priority 2: Hardcoded fallbacks REMOVED for security
-    # Keys must be provided via environment variables or .env file
+    # Priority 2: Streamlit Secret Storage (for cloud deployment)
+    if not url or not key:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                if "SUPABASE_URL" in st.secrets:
+                    url = st.secrets["SUPABASE_URL"]
+                if "SUPABASE_KEY" in st.secrets:
+                    key = st.secrets["SUPABASE_KEY"]
+                
+                # Also check inside a 'supabase' section if it exists
+                if not url and "supabase" in st.secrets:
+                    url = st.secrets["supabase"].get("URL")
+                    key = st.secrets["supabase"].get("KEY")
+        except Exception:
+            # streamlit might not be installed or initialized
+            pass
+            
+    # Priority 3: Hardcoded fallbacks REMOVED for security
+    # Keys must be provided via environment variables, .env file, or secrets.toml
 
     
     # Ensure environment is loaded just in case
@@ -78,7 +96,7 @@ def get_supabase_client() -> Optional[Client]:
         details += f"CWD={os.getcwd()}, .env={env_file or 'NOT FOUND'}. "
         if env_file and os.path.exists(env_file):
              details += f"File size={os.path.getsize(env_file)} bytes."
-        return None, f"Supabase credentials not found. {details}"
+        return None, f"Supabase credentials not found. {details} Please check your .env file or Streamlit secrets."
     
     try:
         return create_client(url, key), None
