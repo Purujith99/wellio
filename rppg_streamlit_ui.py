@@ -718,87 +718,135 @@ if HAVE_AUTH and check_authentication():
     
     st.sidebar.divider()
 
-st.sidebar.title(f"⚙️ {t('settings_title')}")
+# st.sidebar.title(f"⚙️ {t('settings_title')}") - REMOVED per user request
 use_mediapipe = False  # Using Haar Cascade for better compatibility
 
-show_advanced = st.sidebar.checkbox(t("show_advanced_plots"), value=True)
+show_advanced = True # st.sidebar.checkbox(t("show_advanced_plots"), value=True) - REMOVED per user request
 
 # USER PROFILE (SIDEBAR)
 # ============================================================================
-with st.sidebar.expander(t("user_profile_title"), expanded=True):
+
+# Display Summary if Profile is Completed - REMOVED per user request
+# if st.session_state.get("profile_completed"):
+#     p_age = st.session_state.get("profile_age")
+#     p_gender = t(st.session_state.get("profile_gender", ""))
+#     p_height = st.session_state.get("profile_height")
+#     p_weight = st.session_state.get("profile_weight")
+#    
+#     st.sidebar.markdown(f"**{t('age_label')}**: {p_age} | **{t('gender_label')}**: {p_gender}")
+#     st.sidebar.markdown(f"**{t('height_label')}**: {p_height}cm | **{t('weight_label')}**: {p_weight}kg")
+#     st.sidebar.divider()
+        
+with st.sidebar.expander(t("user_profile_title"), expanded=not st.session_state.get("profile_completed", False)):
     with st.form("user_profile", clear_on_submit=False):
-        # Initialize defaults if not present
-        if "profile_age" not in st.session_state: st.session_state["profile_age"] = 30
-        age = st.number_input(t("age_label"), min_value=0, max_value=120, key="profile_age")
+        # Retrieve saved values to ensure persistence
+        saved_age = st.session_state.get("profile_age")
+        age = st.number_input(t("age_label"), min_value=0, max_value=120, key="form_profile_age", value=saved_age, placeholder="Ex: 30")
         
         # Gender options
         gender_options = ["prefer_not_say", "female", "male", "other"]
         gender_display = {opt: t(opt) for opt in gender_options}
-        if "profile_gender" not in st.session_state: st.session_state["profile_gender"] = gender_options[0]
+        saved_gender = st.session_state.get("profile_gender")
+        gender_index = gender_options.index(saved_gender) if saved_gender in gender_options else None
+        
         gender = st.selectbox(
             t("gender_label"), 
             options=gender_options,
             format_func=lambda x: gender_display[x],
-            key="profile_gender"
+            key="form_profile_gender",
+            index=gender_index,
+            placeholder="Select Gender"
         )
         
-        if "profile_height" not in st.session_state: st.session_state["profile_height"] = 170
-        height = st.number_input(t("height_label"), min_value=50, max_value=250, key="profile_height")
+        saved_height = st.session_state.get("profile_height")
+        height = st.number_input(t("height_label"), min_value=50, max_value=250, key="form_profile_height", value=saved_height, placeholder="Ex: 170")
         
-        if "profile_weight" not in st.session_state: st.session_state["profile_weight"] = 70
-        weight = st.number_input(t("weight_label"), min_value=20, max_value=300, key="profile_weight")
+        saved_weight = st.session_state.get("profile_weight")
+        weight = st.number_input(t("weight_label"), min_value=20, max_value=300, key="form_profile_weight", value=saved_weight, placeholder="Ex: 70")
         
         # Diet options
         diet_options = ["non_vegetarian", "vegetarian", "vegan", "other"]
         diet_display = {opt: t(opt) for opt in diet_options}
-        if "profile_diet" not in st.session_state: st.session_state["profile_diet"] = diet_options[0]
+        saved_diet = st.session_state.get("profile_diet")
+        diet_index = diet_options.index(saved_diet) if saved_diet in diet_options else None
+        
         diet = st.selectbox(
             t("diet_label"),
             options=diet_options,
             format_func=lambda x: diet_display[x],
-            key="profile_diet"
+            key="form_profile_diet",
+            index=diet_index,
+            placeholder="Select Diet"
         )
         
         # Exercise options
         exercise_options = ["never", "exercise_1_2", "exercise_3_4", "daily"]
         exercise_display = {opt: t(opt) for opt in exercise_options}
-        if "profile_exercise" not in st.session_state: st.session_state["profile_exercise"] = exercise_options[2]
+        saved_exercise = st.session_state.get("profile_exercise")
+        exercise_index = exercise_options.index(saved_exercise) if saved_exercise in exercise_options else None
+        
         exercise = st.selectbox(
             t("exercise_label"),
             options=exercise_options,
             format_func=lambda x: exercise_display[x],
-            key="profile_exercise"
+            key="form_profile_exercise",
+            index=exercise_index,
+            placeholder="Select Exercise Level"
         )
         
-        if "profile_sleep" not in st.session_state: st.session_state["profile_sleep"] = 7.0
-        sleep = st.number_input(t("sleep_label"), min_value=0.0, max_value=24.0, step=0.5, key="profile_sleep")
+        saved_sleep = st.session_state.get("profile_sleep")
+        sleep = st.number_input(t("sleep_label"), min_value=0.0, max_value=24.0, step=0.5, key="form_profile_sleep", value=saved_sleep, placeholder="Ex: 7.0")
         
         # Smoking options
         smoking_options = ["never", "occasional", "regular", "former"]
         smoking_display = {opt: t(opt) for opt in smoking_options}
-        if "profile_smoking" not in st.session_state: st.session_state["profile_smoking"] = smoking_options[0]
+        saved_smoking = st.session_state.get("profile_smoking")
+        smoking_index = smoking_options.index(saved_smoking) if saved_smoking in smoking_options else None
+        
         smoking = st.selectbox(
             t("smoking_label"),
             options=smoking_options,
             format_func=lambda x: smoking_display[x],
-            key="profile_smoking"
+            key="form_profile_smoking",
+            index=smoking_index,
+            placeholder="Select Smoking Status"
         )
         
         # Drinking options
         drinking_options = ["never", "occasional", "regular", "former"]
         drinking_display = {opt: t(opt) for opt in drinking_options}
-        if "profile_drinking" not in st.session_state: st.session_state["profile_drinking"] = drinking_options[0]
+        saved_drinking = st.session_state.get("profile_drinking")
+        drinking_index = drinking_options.index(saved_drinking) if saved_drinking in drinking_options else None
+        
         drinking = st.selectbox(
             t("drinking_label"),
             options=drinking_options,
             format_func=lambda x: drinking_display[x],
-            key="profile_drinking"
+            key="form_profile_drinking",
+            index=drinking_index,
+            placeholder="Select Drinking Status"
         )
         
         submitted = st.form_submit_button(t("save_profile_button"))
         if submitted:
-            st.session_state["profile_completed"] = True
-            st.sidebar.success(f"✅ {t('profile_saved')}")
+            # Validation: Check if any field is None
+            if any(x is None for x in [age, gender, height, weight, diet, exercise, sleep, smoking, drinking]):
+                st.error("Please fill in all fields to save your profile.")
+            else:
+                # Map form values to main session state keys expected by the app
+                st.session_state["profile_age"] = age
+                st.session_state["profile_gender"] = gender
+                st.session_state["profile_height"] = height
+                st.session_state["profile_weight"] = weight
+                st.session_state["profile_diet"] = diet
+                st.session_state["profile_exercise"] = exercise
+                st.session_state["profile_sleep"] = sleep
+                st.session_state["profile_smoking"] = smoking
+                st.session_state["profile_drinking"] = drinking
+                
+                st.session_state["profile_completed"] = True
+                st.sidebar.success(f"✅ {t('profile_saved')}")
+                st.rerun() # Rerun to update the summary view immediately
 
 # ============================================================================
 # USAGE HISTORY (SIDEBAR)
