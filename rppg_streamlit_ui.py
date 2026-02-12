@@ -73,8 +73,7 @@ try:
         create_user, authenticate_user, validate_email,
         validate_password, get_password_strength, User,
         update_user_language, get_google_auth_url, exchange_code_for_session,
-        update_user_language, get_google_auth_url, exchange_code_for_session,
-        get_supabase_client, update_user_name
+        get_supabase_client
     )
     from s3_utils import generate_presigned_url, get_s3_client
     HAVE_AUTH = True
@@ -712,33 +711,7 @@ if HAVE_AUTH and check_authentication():
     st.sidebar.divider()
     user_name = get_current_user_name()
     user_email = get_current_user_email()
-    
-    # User Name with Edit Option
-    col1, col2 = st.sidebar.columns([0.8, 0.2])
-    with col1:
-        if st.session_state.get("editing_name", False):
-            new_name = st.text_input("Name", value=user_name, label_visibility="collapsed", key="edit_name_input")
-        else:
-            st.write(f"👤 **{user_name}**")
-            
-    with col2:
-        if st.session_state.get("editing_name", False):
-            if st.button("💾", key="save_name_btn", help="Save Name"):
-                if new_name and len(new_name.strip()) >= 2:
-                    with st.spinner("Saving..."):
-                        if update_user_name(user_email, new_name):
-                            st.session_state["user_name"] = new_name.strip()
-                            st.session_state["editing_name"] = False
-                            st.rerun()
-                        else:
-                            st.error("Error")
-                else:
-                    st.warning("Invalid")
-        else:
-            if st.button("✏️", key="edit_name_btn", help="Edit Name"):
-                st.session_state["editing_name"] = True
-                st.rerun()
-                
+    st.sidebar.write(f"👤 **{user_name}**")
     st.sidebar.caption(user_email)
     
     # Logout button
