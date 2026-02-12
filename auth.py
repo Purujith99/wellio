@@ -442,6 +442,34 @@ def update_user_language(email: str, language: str) -> bool:
         return False
 
 
+def update_user_name(email: str, new_name: str) -> Tuple[bool, str]:
+    """
+    Update user's name in Supabase.
+    
+    Args:
+        email: User email
+        new_name: New name to set
+        
+    Returns:
+        (success: bool, message: str)
+    """
+    if not new_name or len(new_name.strip()) < 2:
+        return False, "Name must be at least 2 characters long"
+        
+    try:
+        supabase, _ = get_supabase_client()
+        if not supabase:
+            return False, "Database connection error"
+        
+        supabase.table('users').update({
+            'name': new_name.strip()
+        }).eq('email', email.lower()).execute()
+        
+        return True, "Name updated successfully"
+    except Exception as e:
+        print(f"Error updating name: {e}")
+        return False, f"Error updating name: {str(e)}"
+
 # ============================================================================
 # GOOGLE OAUTH
 # ============================================================================

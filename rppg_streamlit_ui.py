@@ -72,7 +72,7 @@ try:
     from auth import (
         create_user, authenticate_user, validate_email,
         validate_password, get_password_strength, User,
-        update_user_language, get_google_auth_url, exchange_code_for_session,
+        update_user_language, update_user_name, get_google_auth_url, exchange_code_for_session,
         get_supabase_client
     )
     from s3_utils import generate_presigned_url, get_s3_client
@@ -711,7 +711,40 @@ if HAVE_AUTH and check_authentication():
     st.sidebar.divider()
     user_name = get_current_user_name()
     user_email = get_current_user_email()
-    st.sidebar.write(f"👤 **{user_name}**")
+    
+    # User editing state
+    if "is_editing_name" not in st.session_state:
+        st.session_state["is_editing_name"] = False
+        
+    col1, col2 = st.sidebar.columns([4, 1])
+    
+    with col1:
+        if st.session_state["is_editing_name"]:
+            new_name = st.text_input("Edit Name", value=user_name, label_visibility="collapsed")
+            if st.button("Save", key="save_name_btn"):
+                if new_name and len(new_name.strip()) >= 2:
+                    success, msg = update_user_name(user_email, new_name)
+                    if success:
+                        st.session_state["user_name"] = new_name.strip()
+                        st.session_state["is_editing_name"] = False
+                        st.success("Name updated!")
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.error("Invalid name")
+            if st.button("Cancel", key="cancel_edit_btn"):
+                st.session_state["is_editing_name"] = False
+                st.rerun()
+        else:
+            st.write(f"👤 **{user_name}**")
+            
+    with col2:
+        if not st.session_state["is_editing_name"]:
+            if st.button("✏️", key="edit_name_btn", help="Edit Name"):
+                st.session_state["is_editing_name"] = True
+                st.rerun()
+                
     st.sidebar.caption(user_email)
     
     # Logout button
