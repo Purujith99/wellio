@@ -1,237 +1,213 @@
-🫀 Wellio – Experimental rPPG Vitals Estimation
+🫀 Wellio – Camera-Based Heart Rate & HRV Estimation
 
-Modular remote photoplethysmography system for camera-based heart rate and HRV estimation
+Wellio is an experimental remote photoplethysmography (rPPG) system that estimates heart rate and heart rate variability using nothing more than a standard RGB camera.
 
-Wellio is a research-grade rPPG system that estimates heart rate and heart rate variability (HRV) from standard RGB cameras using signal processing and spectral analysis.
-It demonstrates a full-stack architecture combining computer vision, biomedical signal processing, REST APIs, and cloud deployment.
+It combines computer vision, signal processing, and modern web architecture to explore how far we can push camera-based vital sign estimation — responsibly.
 
-📊 Project Overview
+This is a research and hackathon project, not a medical device.
 
-Wellio implements a complete pipeline for camera-based vital signal extraction:
+🌍 Why This Project Exists
 
-✅ Implemented Features
+Access to vital sign monitoring isn’t always convenient or affordable.
 
-Heart Rate estimation via Welch Power Spectral Density
+What if a simple camera could provide meaningful physiological insights?
 
-HRV metrics (SDNN, pNN50)
+Wellio explores that idea — carefully, transparently, and with full acknowledgment of its limitations.
 
-Signal preprocessing (detrend + Butterworth bandpass)
+🚀 What Wellio Can Do
 
-Modular rPPG processing engine
+Estimate Heart Rate (HR)
 
-Streamlit interactive UI
+Compute HRV metrics (SDNN, pNN50)
 
-FastAPI REST backend
+Extract physiological signals from facial video
 
-Docker-ready deployment
+Visualize waveform and spectral plots
 
-🧪 Experimental / Research Components
+Run locally (Streamlit)
 
-Heuristic risk scoring
+Expose a REST API (FastAPI)
 
-Short-duration stress inference from HRV
+Deploy via Docker
 
-Exploratory blood pressure modeling (not validated)
+Integrate authentication (Supabase) and storage (AWS S3)
 
-🏗️ System Architecture
-High-Level Deployment Flow
+🏗 System Architecture
+
+Wellio is designed as a modular, scalable system.
+
+High-Level Infrastructure Flow
 User (Browser)
-   ↓
+        ↓
 Streamlit UI  OR  React Frontend
-   ↓
+        ↓
 FastAPI Backend
-   ↓
+        ↓
 rPPG Processing Engine
-   ↓
-Supabase (Auth / DB)
-   ↓
+        ↓
+Supabase (Auth + Database)
+        ↓
 AWS S3 (Report Storage)
 
-Repository Structure
-wellio/
-├── rppg_refactored.py        # Core signal processing engine
-│   ├── FaceDetector
-│   ├── SignalExtractor
-│   ├── SignalProcessor
-│   ├── VitalsEstimator
-│   └── RiskAssessor
-├── rppg_streamlit_ui.py      # Streamlit interface
-├── rppg_fastapi.py           # REST backend
-├── s3_utils.py               # S3 storage integration
-├── auth.py                   # Supabase authentication
-├── requirements.txt
-└── README.md
+Architecture Philosophy
+
+Clear separation between frontend and backend
+
+Modular signal processing core
+
+Cloud-ready deployment
+
+Environment-based credential management
+
+Scalable storage integration
 
 🔬 Signal Processing Pipeline
+
+This is where the physiological estimation happens.
+
 Video Input
     ↓
-📹 Face Detection (MediaPipe / Haar)
+Face Detection (MediaPipe / Haar)
     ↓
-🎬 ROI Extraction (Forehead)
+Forehead ROI Isolation
     ↓
-📊 Temporal Color Signal Extraction (Green channel)
+Green Channel Signal Extraction
     ↓
-🔬 Preprocessing (Detrend → Normalize → Bandpass 0.75–3.0 Hz)
+Preprocessing:
+    - Interpolation
+    - Detrending
+    - Normalization
+    - Bandpass Filtering (0.75–3.0 Hz)
     ↓
-❤️ Heart Rate (Welch PSD Peak → BPM)
+Welch PSD → Dominant Frequency
     ↓
-📈 HRV (RR intervals → SDNN, pNN50)
+Heart Rate (BPM)
     ↓
-📊 Visualization (Signal plots, FFT, HRV histograms)
-
-⚠️ Research Disclaimer
-
-This is an experimental research tool.
-
-Not clinically validated
-
-Not FDA/CE approved
-
-Not intended for medical diagnosis
-
-Not a replacement for ECG, pulse oximeter, or BP monitor
-
-Typical expected performance:
-
-Heart Rate: ±5–10 BPM (visible-light rPPG)
-
-HRV (SDNN): ±20–40% for short recordings
-
-Blood Pressure: Not clinically supported
-
-SpO₂: Not implemented (requires NIR hardware)
-
-Use for:
-
-Signal processing education
-
-Hackathon demonstrations
-
-Research exploration
-
-Do not use for medical decisions.
-
-🚀 Quick Start
-Local Streamlit App
-pip install -r requirements.txt
-streamlit run rppg_streamlit_ui.py
+Peak Detection → RR Intervals
+    ↓
+HRV (SDNN, pNN50)
+    ↓
+Visualization & Risk Output
 
 
-Open: http://localhost:8501
+Two layers exist:
 
-FastAPI Backend
-pip install fastapi uvicorn aiofiles
-python rppg_fastapi.py
+System layer → Infrastructure & deployment
 
+Signal layer → Physiological computation
 
-Swagger UI:
+🔬 How Heart Rate Is Estimated
 
-http://localhost:8000/docs
+Uses the green channel due to hemoglobin absorption properties
 
+Applies:
 
-Health check:
+Detrending
 
-curl http://localhost:8000/health
+Normalization
 
-Docker
-docker build -f Dockerfile.fastapi -t rppg-api .
-docker run -p 8000:8000 rppg-api
+Butterworth bandpass filtering
 
-💻 Programmatic Usage
-from rppg_refactored import estimate_vitals_from_video
+Welch Power Spectral Density identifies dominant frequency
 
-vitals, filtered_signal, risk = estimate_vitals_from_video(
-    video_path="video.mp4",
-    use_mediapipe=True
-)
+Frequency × 60 → BPM
 
-print(f"Heart Rate: {vitals.heart_rate_bpm:.1f} BPM")
-print(f"SDNN: {vitals.sdnn:.1f} ms")
-print(f"Stress Level: {vitals.stress_level:.1f}/10")
+Expected visible-light accuracy:
 
-🔬 Technical Summary
-Heart Rate
+±5–10 BPM under stable lighting
 
-Welch PSD used for frequency-domain robustness
+📈 HRV in This Project
 
-HR band: 0.75–3.0 Hz (45–180 BPM)
+RR intervals derived from peak detection
 
-Peak frequency × 60 → BPM
-
-HRV
-
-Peak detection → RR intervals
-
-Time-domain metrics:
+Metrics:
 
 SDNN
 
 pNN50
 
-Short recordings (<2 min) reduce reliability
+Short recordings (<2 minutes) reduce reliability
 
-Blood Pressure
+Intended for research exploration, not clinical interpretation
 
-Currently modeled as exploratory heuristic.
-Accurate BP estimation requires:
+🧪 Experimental Components
 
-Multi-wavelength signals (Red + IR)
+Some features are exploratory:
 
-Calibration dataset
+Heuristic risk scoring
 
-ML regression models
+Stress inference from short HRV recordings
 
-Clinical validation study
+Blood pressure modeling (concept only)
 
-SpO₂
+These are clearly marked and not validated.
 
-Not implemented.
-RGB cameras cannot reliably estimate oxygen saturation without IR channel.
+SpO₂ is not implemented (RGB cameras are insufficient for reliable oxygen saturation).
 
-🧪 Validation
+⚠ Important Disclaimer
 
-To evaluate performance:
+This project:
 
-Compare HR vs Apple Watch / Fitbit
+Is not clinically validated
 
-Compute absolute and percentage error
+Is not FDA/CE approved
 
-Validate SDNN on longer recordings (2–5 minutes recommended)
+Is not intended for diagnosis
 
-Expected visible-light rPPG error:
+Does not replace ECG, pulse oximeters, or BP monitors
 
-HR: ±5–10 BPM
+Use it for:
 
-HRV: Higher variance under motion
+Learning signal processing
 
-🛠️ Troubleshooting
+Hackathon demonstrations
 
-Face not detected
+Research exploration
 
-Improve lighting
+Do not use it for medical decisions.
 
-Reduce occlusion
+🚀 Getting Started
+▶ Local (Streamlit)
+pip install -r requirements.txt
+streamlit run rppg_streamlit_ui.py
 
-Move closer to camera
 
-Unrealistic heart rate
+Open:
+http://localhost:8501
 
-Reduce motion
+▶ Backend (FastAPI)
+pip install fastapi uvicorn aiofiles
+python rppg_fastapi.py
 
-Re-record video
 
-Ensure stable lighting
+Swagger UI:
+http://localhost:8000/docs
 
-CORS errors
-Update FastAPI CORS middleware:
+▶ Docker Deployment
+docker build -f Dockerfile.fastapi -t rppg-api .
+docker run -p 8000:8000 rppg-api
 
-CORSMiddleware(allow_origins=["https://yourdomain.com"])
+🔐 Security & Deployment Notes
 
-🔐 Security Notes
+Wellio follows basic production security principles:
 
 No API keys stored in repository
 
-All credentials loaded via environment variables
+All secrets loaded via environment variables
+
+.env excluded in .gitignore
+
+Service-role keys never exposed to frontend
+
+Restricted IAM permissions for S3
+
+File size validation on backend
+
+Public deployments should enable:
+
+CORS restrictions
+
+Rate limiting
 
 Required environment variables:
 
@@ -239,7 +215,7 @@ SUPABASE_URL
 
 SUPABASE_ANON_KEY
 
-SUPABASE_SERVICE_ROLE_KEY (server-side only)
+SUPABASE_SERVICE_ROLE_KEY (backend only)
 
 AWS_ACCESS_KEY_ID
 
@@ -247,55 +223,62 @@ AWS_SECRET_ACCESS_KEY
 
 S3_BUCKET_NAME
 
-Security practices:
+🧪 Validation Strategy
 
-.env excluded via .gitignore
+To evaluate accuracy:
 
-Service role keys never exposed client-side
+Compare HR with Apple Watch or Fitbit
 
-S3 uses restricted IAM permissions
+Compute absolute & percentage error
 
-Backend enforces file size limits
+Use 2–5 minute recordings for HRV
 
-Configure CORS and rate limiting for public deployments
+Known research challenges:
 
-📚 References
+Motion artifacts
 
-Verkruysse et al. (2008) – Remote plethysmographic imaging
+Lighting variability
 
-de Haan & Jeanne (2013) – CHROM algorithm
+Skin tone bias
 
-Wang et al. (2016) – POS algorithm
+Camera sensor differences
 
-UBFC-rPPG Dataset
-
-PURE Dataset
+📂 Repository Structure
+wellio/
+├── rppg_refactored.py        # Core signal engine
+│   ├── FaceDetector
+│   ├── SignalExtractor
+│   ├── SignalProcessor
+│   ├── VitalsEstimator
+│   └── RiskAssessor
+├── rppg_streamlit_ui.py      # UI
+├── rppg_fastapi.py           # Backend API
+├── s3_utils.py               # S3 integration
+├── auth.py                   # Supabase authentication
+├── requirements.txt
+└── README.md
 
 🤝 Contributing
 
-Contributions welcome in:
+Potential improvements:
 
-Motion artifact removal (ICA, CHROM+, optical flow)
+Motion robustness (ICA, CHROM+, optical flow)
 
 Bias mitigation across skin tones
 
-Real-time streaming support
+Real-time streaming
 
-Validation benchmarking studies
+Clinical benchmarking studies
 
 📄 License
 
 For educational and research use only.
 Not approved for clinical use.
 
-See LICENSE for details.
+Final Note
 
-📞 Support
+Wellio is an exploration — not a medical product.
 
-Open GitHub Issues for bugs
+It is built with curiosity, engineering rigor, and respect for scientific boundaries.
 
-Contact author for academic inquiries
-
-Consult medical professionals for health concerns
-
-Wellio is a research platform. Prioritize safety and scientific integrity.
+Use responsibly.
