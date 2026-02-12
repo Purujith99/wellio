@@ -1430,7 +1430,7 @@ if HAVE_CHATBOT and HAVE_GEMINI:
         # Or maybe check if we can skip it, but User asked for it. 
         # Since st.dialog can't be closed programmatically easily, we just rely on X.
         # But to satisfy user request visually:
-        if st.button(f"🏠 {t('back_to_home')}", type="secondary", use_container_width=True):
+        if st.button(f"🏠 {t('back_to_home')}", type="secondary", use_container_width=True, key="chatbot_back_to_home"):
              st.session_state["show_chatbot"] = False
              st.rerun()
         
@@ -1468,7 +1468,7 @@ if HAVE_CHATBOT and HAVE_GEMINI:
                                 st.session_state["tts_autoplay_idx"] = None
                         else:
                             # Simple Listen button
-                            if st.button("🔊", key=f"tts_{i}", help="Listen to this response"):
+                            if st.button("🔊", key=f"chatbot_tts_{i}", help="Listen to this response"):
                                 with st.spinner("..."):
                                     try:
                                         from gtts import gTTS
@@ -1481,6 +1481,7 @@ if HAVE_CHATBOT and HAVE_GEMINI:
                                         
                                         # Set flag to autoplay this index
                                         st.session_state["tts_autoplay_idx"] = i
+                                        st.session_state["chatbot_just_rerun"] = True
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"TTS Error: {e}")
@@ -1517,10 +1518,10 @@ if HAVE_CHATBOT and HAVE_GEMINI:
                 start_prompt="🎙️",
                 stop_prompt="⏹️",
                 just_once=True,
-                key="STT"
+                key="chatbot_stt"
             )
         
-        user_input = st.chat_input(t("chatbot_input_placeholder"))
+        user_input = st.chat_input(t("chatbot_input_placeholder"), key="chatbot_input")
         
         # Handle audio text if present
         if audio_text:
@@ -1581,45 +1582,82 @@ if HAVE_CHATBOT and HAVE_GEMINI:
                         
                         # Save response
                         st.session_state["chat_messages"].append(response)
+                        st.session_state["chatbot_just_rerun"] = True
                         st.rerun()
             
         # Action buttons (Inside Dialog)
         st.divider()
         col1, col2 = st.columns([1, 1])
         with col1:
-            if st.button(f"🗑️ {t('chatbot_clear')}", type="secondary", use_container_width=True):
+            if st.button(f"🗑️ {t('chatbot_clear')}", type="secondary", use_container_width=True, key="chatbot_clear"):
                 clear_chat_history(username)
                 st.session_state["chat_messages"] = []
+                st.session_state["chatbot_just_rerun"] = True
                 st.rerun()
         with col2:
-            if st.button(f"📹 {t('go_to_upload')}", type="primary", use_container_width=True):
-                st.rerun() # Closes dialog
+            if st.button(f"📹 {t('go_to_upload')}", type="primary", use_container_width=True, key="chatbot_upload"):
+                st.session_state["show_chatbot"] = False # Explicitly close to show upload
+                st.rerun() 
 
         # Suggested questions (only if no chat history)
         if not st.session_state["chat_messages"]:
             st.markdown(f"**💡 {t('suggested_questions')}:**")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button(f"📊 {t('question_trends')}", use_container_width=True):
+                if st.button(f"📊 {t('question_trends')}", use_container_width=True, key="chatbot_sq_trends"):
                     st.session_state["suggested_question"] = "How are my health trends looking?"
+                    st.session_state["chatbot_just_rerun"] = True
                     st.rerun()
-                if st.button(f"❤️ {t('question_heart_rate')}", use_container_width=True):
+                if st.button(f"❤️ {t('question_heart_rate')}", use_container_width=True, key="chatbot_sq_hr"):
                     st.session_state["suggested_question"] = "What is considered a normal heart rate?"
+                    st.session_state["chatbot_just_rerun"] = True
                     st.rerun()
             with col2:
-                if st.button(f"😰 {t('question_stress')}", use_container_width=True):
+                if st.button(f"😰 {t('question_stress')}", use_container_width=True, key="chatbot_sq_stress"):
                     st.session_state["suggested_question"] = "What are some ways to reduce stress?"
+                    st.session_state["chatbot_just_rerun"] = True
                     st.rerun()
-                if st.button(f"🏃 {t('question_exercise')}", use_container_width=True):
+                if st.button(f"🏃 {t('question_exercise')}", use_container_width=True, key="chatbot_sq_ex"):
                     st.session_state["suggested_question"] = "What are the health benefits of regular exercise?"
+                    st.session_state["chatbot_just_rerun"] = True
                     st.rerun()
 
     # Trigger Button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button(f"💬 {t('chatbot_title')}", type="primary", use_container_width=True):
+        # 1. Main Button to Open
+        if st.button(f"💬 {t('chatbot_title')}", type="primary", use_container_width=True, key="chatbot_main_trigger"):
             st.session_state["show_chatbot"] = True
             
+    # 2. Logic to determine if Chatbot should stay open
+    # The dialog closes automatically on interaction with outside elements.
+    # We need to detect if the rerun was caused by:
+    # a) The main button (opening)
+    # b) An interaction INSIDE the chatbot (keep open)
+    # c) An explicit rerun trigger from chatbot logic (keep open)
+    # d) Something else (close it)
+    
+    if st.session_state.get("show_chatbot"):
+        is_opening = st.session_state.get("chatbot_main_trigger")
+        
+        # Check for any interaction with widgets inside the chatbot (must use keys starting with 'chatbot_')
+        is_inner_interaction = False
+        for k in st.session_state:
+            # Check if key starts with chatbot_ AND is not the main trigger AND has a true/truthy value/change
+            if k.startswith("chatbot_") and k != "chatbot_main_trigger":
+                 # For buttons, bool is True if clicked. For inputs, value is present.
+                 if st.session_state[k]: 
+                     is_inner_interaction = True
+                     break
+        
+        # Check for explicit keep-alive flag (e.g. for TTS autoplay reruns)
+        was_rerun = st.session_state.pop("chatbot_just_rerun", False)
+        
+        # If not opening, not interacting inside, and not a forced rerun -> User likely clicked outside/closed it.
+        if not (is_opening or is_inner_interaction or was_rerun):
+            st.session_state["show_chatbot"] = False
+
+    # 3. Render Dialog if state is True
     if st.session_state.get("show_chatbot", False):
         open_chatbot_dialog()
 
