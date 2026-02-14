@@ -76,9 +76,19 @@ def get_sessions_in_period(username: str, days: int) -> List[SessionData]:
     for session in all_sessions:
         try:
             session_date = datetime.fromisoformat(session.timestamp)
-            if session_date >= cutoff_date:
+            
+            # Handle timezone awareness to avoid TypeError during comparison
+            if session_date.tzinfo is not None:
+                # Session date is aware, use aware cutoff
+                cutoff = datetime.now(session_date.tzinfo) - timedelta(days=days)
+            else:
+                # Session date is naive, use naive cutoff
+                cutoff = datetime.now() - timedelta(days=days)
+                
+            if session_date >= cutoff:
                 filtered_sessions.append(session)
-        except Exception:
+        except Exception as e:
+            # print(f"Error processing session date: {e}") # helpful for debug
             continue
     
     # Sort by timestamp (oldest first for trend analysis)
