@@ -19,7 +19,8 @@ import re
 import os
 from pathlib import Path
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+import uuid
 from typing import Optional, Tuple, List
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -647,4 +648,98 @@ def delete_user(email: str) -> Tuple[bool, str]:
         return True, "User deleted successfully"
     except Exception as e:
         print(f"Error deleting user: {e}")
-        return False, f"Error deleting user: {str(e)}"
+# ============================================================================
+# SESSION MANAGEMENT (PERSISTENCE)
+# ============================================================================
+
+def create_session(email: str) -> Tuple[Optional[str], str]:
+    """
+    Create a new login session and return the token.
+    
+    Args:
+        email: User email
+        
+    Returns:
+        (token, error_message)
+    """
+    try:
+        supabase, error = get_supabase_client()
+        if not supabase:
+            return None, f"DB Error: {error}"
+            
+        # Generate token
+        token = str(uuid.uuid4())
+        
+        # Set expiry (30 days)
+        expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat()
+        
+        data = {
+            'user_email': email.lower(),
+            'token': token,
+            'expires_at': expires_at
+        }
+        
+        supabase.table('sessions').insert(data).execute()
+        return token, ""
+    except Exception as e:
+        print(f"Error creating session: {e}")
+        return None, str(e)
+
+
+def validate_session_token(token: str) -> Optional[User]:
+    """
+    Validate session token and return associated User.
+    
+    Args:
+        token: Session token
+        
+    Returns:
+        User object if valid, None otherwise
+    """
+    if not token:
+        return None
+        
+    try:
+        supabase, _ = get_supabase_client()
+        if not supabase:
+            return None
+            
+        # Check if token exists and is not expired
+        now = datetime.utcnow().isoformat()
+        response = supabase.table('sessions').select('user_email').eq('token', token).gt('expires_at', now).execute()
+        
+        if not response.data:
+            return None
+            
+        email = response.data[0]['user_email']
+        return get_user(email)
+        
+    except Exception as e:
+        print(f"Error validating session: {e}")
+        return None
+
+
+def logout_session(token: str) -> bool:
+    """
+    Delete session token (logout).
+    
+    Args:
+        token: Session token
+        
+    Returns:
+        True if successful
+    """
+    if not token:
+        return False
+        
+    try:
+        supabase, _ = get_supabase_client()
+        if not supabase:
+            return False
+            
+        supabase.table('sessions').delete().eq('token', token).execute()
+        return True
+    except Exception as e:
+        print(f"Error logging out session: {e}")
+        return False
+

@@ -9,6 +9,7 @@ mediapipe>=0.9.0
 
 # For Streamlit UI
 streamlit>=1.34.0
+extra-streamlit-components>=0.1.71
 
 streamlit-mic-recorder>=0.0.4
 gTTS>=2.5.0

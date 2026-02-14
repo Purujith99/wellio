@@ -70,14 +70,25 @@ try:
         create_user, authenticate_user, validate_email,
         validate_password, get_password_strength, User,
         update_user_language, update_user_name, get_google_auth_url, exchange_code_for_session,
-        get_supabase_client
+        get_supabase_client, create_session, logout_session
     )
+    from s3_utils import generate_presigned_url, get_s3_client
+    HAVE_AUTH = True
+    HAVE_S3 = True
     from s3_utils import generate_presigned_url, get_s3_client
     HAVE_AUTH = True
     HAVE_S3 = True
 except ImportError:
     HAVE_AUTH = False
     HAVE_S3 = False
+
+# Session Manager
+try:
+    from session_manager import get_session_manager, SessionManager
+    HAVE_SESSION_MANAGER = True
+except ImportError:
+    HAVE_SESSION_MANAGER = False
+
 
 # ============================================================================
 # PAGE CONFIG
@@ -89,6 +100,22 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ============================================================================
+# SESSION RESTORATION (EARLY INIT)
+# ============================================================================
+
+if HAVE_SESSION_MANAGER:
+    # Initialize SessionManager
+    session_manager = get_session_manager()
+    
+    # Restore session if not already in memory
+    # With Query Params, this is instant and synchronous
+    if not st.session_state.get("logged_in", False):
+        if session_manager.restore_session():
+            session_manager.sync_page_state()
+            st.rerun()
+
 
 # ============================================================================
 # CUSTOM STYLING - SAGE GREEN THEME
@@ -286,7 +313,7 @@ def handle_oauth_callback():
             session = client.auth.get_session()
             if session:
                 # We have a valid session, ensure state is set
-                st.session_state["authenticated"] = True
+                st.session_state["logged_in"] = True
                 user = session.user
                 st.session_state["user_email"] = user.email
                 # Try to get existing user info from DB or metadata
@@ -312,15 +339,27 @@ def handle_oauth_callback():
             success, user, message = exchange_code_for_session(code, supabase_client=supabase)
             
             if success:
-                st.session_state["authenticated"] = True
+                st.session_state["logged_in"] = True
                 st.session_state["user_email"] = user.email
                 st.session_state["user_name"] = user.name
                 # Set user's language preference
                 st.session_state["user_language"] = user.language
                 
-                # Clear query params to prevent re-processing
-                st.query_params.clear()
+                # DO NOT Clear query params - we need them for session persistence!
+                # st.query_params.clear()
                 
+                # Set session token cookie
+                if HAVE_SESSION_MANAGER:
+                    token, error = create_session(user.email)
+                    if token:
+                        get_session_manager().set_session_token(token)
+                        # Init runtime state
+                        get_session_manager().init_runtime_state()
+                        time.sleep(1) # Ensure cookie is set
+                    else:
+                        st.error(f"Persistence Error: {error}")
+                        time.sleep(2) # Let user see error
+
                 st.success(f"✅ {message}")
                 st.rerun()
             else:
@@ -330,23 +369,36 @@ def handle_oauth_callback():
 
 # Call immediately after page config
 if HAVE_AUTH:
-    pass # handle_oauth_callback() # Google Login Removed
+    # Google Login Removed - commenting out to prevent issues
+    # handle_oauth_callback() 
+    pass
 
-def check_authentication() -> bool:
+# ============================================================================
+# SESSION & AUTHENTICATION STATE
+# ============================================================================
+
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = None
+if "user_name" not in st.session_state:
+    st.session_state["user_name"] = None
+
+def check_authentication():
     """Check if user is authenticated"""
-    return st.session_state.get("authenticated", False)
+    return st.session_state.get("logged_in", False)         
 
-def get_current_user_email() -> Optional[str]:
+def get_current_user_email():
     """Get current user email"""
-    return st.session_state.get("user_email", None)
+    return st.session_state.get("user_email")
 
-def get_current_user_name() -> str:
+def get_current_user_name():
     """Get current user name"""
     return st.session_state.get("user_name", "User")
 
 def logout():
-    """Logout current user"""
-    # Sign out from Supabase to invalidate session
+    """Logout user"""
+    # Sign out from Supabase
     try:
         supabase = get_persistent_supabase_client()
         if supabase:
@@ -354,7 +406,19 @@ def logout():
     except Exception as e:
         print(f"Error signing out from Supabase: {e}")
 
-    st.session_state["authenticated"] = False
+    # Clear session via manager
+    if HAVE_SESSION_MANAGER:
+        mgr = get_session_manager()
+        token = mgr.get_session_token()
+        if token:
+            try:
+                logout_session(token)
+            except Exception:
+                pass
+        mgr.clear_session()
+    
+    # Fallback cleanup if manager fails or unavailable
+    st.session_state["logged_in"] = False
     st.session_state["user_email"] = None
     st.session_state["user_name"] = None
     # Clear other session data
@@ -362,13 +426,14 @@ def logout():
     st.session_state.pop("viewing_history", None)
     st.session_state.pop("viewing_trends", None)
     
-    # Clear profile data to force re-verification on next login
+    # Clear profile data
     st.session_state.pop("profile_completed", None)
     for key in list(st.session_state.keys()):
         if key.startswith("profile_"):
             st.session_state.pop(key, None)
             
-    # Clear query params to remove any stale OAuth codes
+    # Clear query params (session_id and page)
+    # This is correct for logout - we WANT to clear them here
     st.query_params.clear()
     st.rerun()
 
@@ -434,12 +499,25 @@ def show_login_page():
                     success, user, message = authenticate_user(email, password)
                     
                     if success:
-                        st.session_state["authenticated"] = True
+                        st.session_state["logged_in"] = True
                         st.session_state["user_email"] = user.email
                         st.session_state["user_name"] = user.name
                         # Set user's language preference
                         st.session_state["user_language"] = user.language
                         st.success(f"✅ {t('login_success')}")
+                        
+                        # Set session token cookie
+                        if HAVE_SESSION_MANAGER:
+                            token, error = create_session(user.email)
+                            if token:
+                                get_session_manager().set_session_token(token)
+                                # Init runtime state
+                                get_session_manager().init_runtime_state()
+                                time.sleep(1) # Ensure cookie is set
+                            else:
+                                st.error(f"Persistence Error: {error}")
+                                time.sleep(2) # Let user see error
+                        
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
@@ -845,7 +923,11 @@ with st.sidebar.expander(t("user_profile_title"), expanded=not st.session_state.
                 st.session_state["profile_drinking"] = drinking
                 
                 st.session_state["profile_completed"] = True
+                
+                # Removed DB Save per user request to revert changes
+                # st.sidebar.success(f"✅ {t('profile_saved')}")
                 st.sidebar.success(f"✅ {t('profile_saved')}")
+                    
                 st.rerun() # Rerun to update the summary view immediately
 
 # ============================================================================
@@ -881,15 +963,21 @@ if HAVE_HISTORY:
             button_label = f"🩺 {timestamp_str}"
             if st.sidebar.button(button_label, key=f"hist_{session.session_id}"):
                 st.session_state["selected_session_id"] = session.session_id
-                st.session_state["viewing_history"] = True
+                if HAVE_SESSION_MANAGER:
+                    get_session_manager().set_page("History")
+                else:
+                    st.session_state["viewing_history"] = True
                 st.rerun()
         
         # Show "View Past Records" button if there are more than 3 sessions
         if session_count > 3:
             if st.sidebar.button("📋 View Past Records", use_container_width=True, type="secondary"):
-                st.session_state["viewing_all_history"] = True
-                st.session_state["viewing_history"] = False
-                st.session_state["viewing_trends"] = False
+                if HAVE_SESSION_MANAGER:
+                    get_session_manager().set_page("AllHistory")
+                else:
+                    st.session_state["viewing_all_history"] = True
+                    st.session_state["viewing_history"] = False
+                    st.session_state["viewing_trends"] = False
                 st.rerun()
     else:
         st.sidebar.info(t("no_history"))
@@ -898,8 +986,11 @@ if HAVE_HISTORY:
     if session_count >= 2:
         st.sidebar.divider()
         if st.sidebar.button(f"📊 {t('view_trends_button')}", use_container_width=True, type="secondary"):
-            st.session_state["viewing_trends"] = True
-            st.session_state["viewing_history"] = False
+            if HAVE_SESSION_MANAGER:
+                get_session_manager().set_page("Trends")
+            else:
+                st.session_state["viewing_trends"] = True
+                st.session_state["viewing_history"] = False
             st.rerun()
 
 # ============================================================================
@@ -954,7 +1045,10 @@ if HAVE_HISTORY and st.session_state.get("viewing_history", False):
             
             with col2:
                 if st.button(f"← {t('back_to_new_analysis_button')}"):
-                    st.session_state["viewing_history"] = False
+                    if HAVE_SESSION_MANAGER:
+                        get_session_manager().set_page("Home")
+                    else:
+                        st.session_state["viewing_history"] = False
                     st.session_state.pop("selected_session_id", None)
                     st.rerun()
             
@@ -1102,7 +1196,10 @@ if HAVE_HISTORY and st.session_state.get("viewing_trends", False):
     col1, col2 = st.columns([3, 1])
     with col2:
         if st.button(f"🏠 {t('back_to_home')}", type="secondary"):
-            st.session_state["viewing_trends"] = False
+            if HAVE_SESSION_MANAGER:
+                get_session_manager().set_page("Home")
+            else:
+                st.session_state["viewing_trends"] = False
             st.rerun()
     
     st.divider()
@@ -1379,7 +1476,10 @@ if HAVE_HISTORY and st.session_state.get("viewing_all_history", False):
     col1, col2 = st.columns([3, 1])
     with col2:
         if st.button(f"🏠 {t('back_to_home')}", type="secondary"):
-            st.session_state["viewing_all_history"] = False
+            if HAVE_SESSION_MANAGER:
+                get_session_manager().set_page("Home")
+            else:
+                st.session_state["viewing_all_history"] = False
             st.rerun()
     
     st.divider()
@@ -1801,9 +1901,10 @@ if uploaded_file is not None or recorded_file_path is not None:
         # Handle Live Recording
         try:
             shutil.copy(recorded_file_path, tmp_path)
-            # Automatic trigger for live recordings
-            start_analysis = True
-            st.info("Starting analysis automatically...")
+            # Automatic trigger for live recordings if not already analyzed
+            if "analysis_results" not in st.session_state:
+                start_analysis = True
+                st.info("Starting analysis automatically...")
         except Exception as e:
             st.error(f"Error processing recorded file: {e}")
 
@@ -1850,7 +1951,9 @@ if uploaded_file is not None or recorded_file_path is not None:
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
                 if st.button(f"🔄 {t('start_new_analysis')}", type="primary", use_container_width=True):
-                    # Clear the viewing state and rerun
+                    # Clear current analysis and recording
+                    st.session_state.pop("analysis_results", None)
+                    st.session_state.pop("recorded_file_path", None)
                     st.session_state.pop("viewing_history", None)
                     st.session_state.pop("selected_session_id", None)
                     st.rerun()
@@ -2580,7 +2683,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                                         mime="application/pdf",
                                         type="primary"
                                     )
-                                    st.session_state["generate_pdf"] = False # Reset state
+                                    st.session_state["generate_pdf"] = False
                                     
                                     # AUTO UPLOAD TO S3
                                     if HAVE_S3 and HAVE_AUTH and check_authentication():
@@ -2625,7 +2728,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                                                         }).execute()
                                         except Exception as e:
                                             print(f"Auto-upload failed: {e}") 
-                                            # Fail silently or just log, don't block user download 
+                                            # Fail silently or just log, don't block user download
                                             # Fail silently or just log, don't block user download
 
                                 except Exception as e:
