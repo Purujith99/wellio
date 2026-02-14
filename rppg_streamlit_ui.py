@@ -20,6 +20,21 @@ import shutil
 from typing import Optional
 import sys
 import time
+import pytz
+
+# IST Timezone
+IST = pytz.timezone('Asia/Kolkata')
+
+def to_ist_display(iso_str):
+    """Convert ISO timestamp string to IST formatted string"""
+    try:
+        dt = datetime.fromisoformat(iso_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=pytz.UTC)
+        dt_ist = dt.astimezone(IST)
+        return dt_ist
+    except:
+        return None
 
 
 # Import translations module
@@ -954,10 +969,10 @@ if HAVE_HISTORY:
         
         st.sidebar.caption(f"{t('recent_analyses')}")
         for session in sessions_to_display:
-            try:
-                timestamp_dt = datetime.fromisoformat(session.timestamp)
-                timestamp_str = timestamp_dt.strftime("%d %b %Y · %I:%M %p")
-            except:
+            dt_ist = to_ist_display(session.timestamp)
+            if dt_ist:
+                timestamp_str = dt_ist.strftime("%d %b %Y · %I:%M %p")
+            else:
                 timestamp_str = "Unknown date"
             
             # Create button for each session
@@ -1038,10 +1053,10 @@ if HAVE_HISTORY and st.session_state.get("viewing_history", False):
             
             col1, col2 = st.columns([3, 1])
             with col1:
-                try:
-                    timestamp_dt = datetime.fromisoformat(session.timestamp)
-                    st.caption(f"{t('analysis_date')}: {timestamp_dt.strftime('%d %B %Y at %I:%M %p')}")
-                except:
+                dt_ist = to_ist_display(session.timestamp)
+                if dt_ist:
+                    st.caption(f"{t('analysis_date')}: {dt_ist.strftime('%d %B %Y at %I:%M %p')}")
+                else:
                     st.caption(f"{t('analysis_date')}: {t('unknown')}")
             
             with col2:
@@ -1502,12 +1517,12 @@ if HAVE_HISTORY and st.session_state.get("viewing_all_history", False):
     
     # Display sessions in a grid layout
     for idx, session in enumerate(sessions):
-        try:
-            timestamp_dt = datetime.fromisoformat(session.timestamp)
-            timestamp_str = timestamp_dt.strftime("%d %B %Y · %I:%M %p")
-            date_badge = timestamp_dt.strftime("%d %b %Y")
-            time_badge = timestamp_dt.strftime("%I:%M %p")
-        except:
+        dt_ist = to_ist_display(session.timestamp)
+        if dt_ist:
+            timestamp_str = dt_ist.strftime("%d %B %Y · %I:%M %p")
+            date_badge = dt_ist.strftime("%d %b %Y")
+            time_badge = dt_ist.strftime("%I:%M %p")
+        else:
             timestamp_str = "Unknown date"
             date_badge = "N/A"
             time_badge = "N/A"
@@ -2614,7 +2629,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                     # Create session data
                     session_data = SessionData(
                         session_id=str(uuid.uuid4()),
-                        timestamp=datetime.now().isoformat(),
+                        timestamp=datetime.now(pytz.UTC).isoformat(),
                         analysis_type="Health Scan",
                         
                         # Profile
