@@ -23,6 +23,21 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path, override=True)
 
+def get_openai_api_key() -> Optional[str]:
+    """
+    Securely retrieve OpenAI API key from Streamlit secrets or environment variables.
+    """
+    # 1. Try Streamlit secrets (for cloud deployment)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "OPENAI_API_KEY" in st.secrets:
+            return st.secrets["OPENAI_API_KEY"]
+    except ImportError:
+        pass
+    
+    # 2. Try environment variable (for local dev)
+    return os.getenv("OPENAI_API_KEY")
+
 try:
     from openai import OpenAI
     HAVE_OPENAI = True
@@ -372,7 +387,7 @@ Please provide a helpful, informative response based on the user's data and ques
     
     try:
         if openai_api_key is None:
-            openai_api_key = os.getenv("OPENAI_API_KEY")
+            openai_api_key = get_openai_api_key()
             
         if not openai_api_key:
              return ChatMessage(

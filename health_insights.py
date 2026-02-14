@@ -14,8 +14,23 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path, override=True)
 
-# Export API_KEY placeholder for backward compatibility
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+def get_openai_api_key() -> Optional[str]:
+    """
+    Securely retrieve OpenAI API key from Streamlit secrets or environment variables.
+    """
+    # 1. Try Streamlit secrets (for cloud deployment)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "OPENAI_API_KEY" in st.secrets:
+            return st.secrets["OPENAI_API_KEY"]
+    except ImportError:
+        pass
+    
+    # 2. Try environment variable (for local dev)
+    return os.getenv("OPENAI_API_KEY")
+
+# Export for backward compatibility (lazy load if possible, but for now strict)
+OPENAI_API_KEY = get_openai_api_key()
 
 
 @dataclass
@@ -216,7 +231,7 @@ def get_health_insights(
     try:
         # Use provided api_key or get from environment
         if api_key is None:
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = get_openai_api_key()
         
         if not api_key:
             raise ValueError("The api_key client option must be set. Please check your OPENAI_API_KEY in .env")
