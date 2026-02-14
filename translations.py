@@ -79,6 +79,8 @@ TRANSLATIONS = {
         "exercise_label": "Exercise frequency",
         "sleep_label": "Sleep hours (per night)",
         "smoking_label": "Smoking habits",
+        "diabetes_label": "Do you have Diabetes?",
+        "physical_activity_label": "Physical Activity Level",
         "drinking_label": "Drinking habits",
         "save_profile_button": "Save Profile",
         "profile_saved": "Profile saved successfully!",
@@ -103,9 +105,13 @@ TRANSLATIONS = {
         
         # Smoking/Drinking Options
         "habit_never": "Never",
+        "habit_no": "No",
+        "habit_yes": "Yes",
         "habit_occasional": "Occasional",
         "habit_regular": "Regular",
         "habit_former": "Former",
+        "activity_active": "Active (≥150 min/week)",
+        "activity_sedentary": "Sedentary",
         
         # Advanced Settings
         "signal_processing": "Signal Processing",
@@ -341,6 +347,15 @@ TRANSLATIONS = {
         "pulse_normal": "Normal",
         "pulse_high": "High",
         "pulse_very_high": "Very High",
+        "risk_factor_age": "Age",
+        "risk_factor_bmi": "BMI",
+        "risk_factor_hr": "Resting Heart Rate",
+        "risk_factor_hrv": "HRV (Low RMSSD)",
+        "risk_factor_bp": "Blood Pressure",
+        "risk_factor_spo2": "SpO2",
+        "risk_factor_smoking": "Smoking",
+        "risk_factor_diabetes": "Diabetes",
+        "risk_factor_activity": "Sedentary Lifestyle",
         
         # Upload Section
         "upload_video_title": "Upload Video for Analysis",
@@ -361,7 +376,13 @@ TRANSLATIONS = {
         
         # Risk Assessment Labels
         "risk_assessment_experimental": "Risk Assessment (Heuristic, Experimental)",
-        "risk_summary_low": "Your risk score is low. Continue maintaining your healthy lifestyle habits.",
+        "recommendation": "Recommendation",
+        "view_details": "View Detailed Factors",
+        "risk_factors_title": "Risk Factors Identified",
+        "protective_factors_title": "Protective Factors Identified",
+        "no_risk_factors": "No significant risk factors identified",
+        "no_protective_factors": "No specific protective factors highlighted",
+        "risk_summary_low": "Your risk profile is currently low. Continue maintaining healthy habits.",
         "risk_summary_moderate": "Your risk score is moderate. Consider improving the risk factors listed above to lower your overall risk.",
         "risk_summary_high": "Your risk score is high. We strongly recommend consulting with a healthcare professional and addressing the risk factors listed above.",
         
@@ -552,6 +573,8 @@ TRANSLATIONS = {
         "exercise_label": "व्यायाम की आवृत्ति",
         "sleep_label": "नींद के घंटे (प्रति रात)",
         "smoking_label": "धूम्रपान की आदतें",
+        "diabetes_label": "क्या आपको मधुमेह है?",
+        "physical_activity_label": "शारीरिक गतिविधि का स्तर",
         "drinking_label": "पीने की आदतें",
         "save_profile_button": "प्रोफ़ाइल सहेजें",
         "profile_saved": "प्रोफ़ाइल सफलतापूर्वक सहेजी गई!",
@@ -576,9 +599,13 @@ TRANSLATIONS = {
         
         # Smoking/Drinking Options
         "habit_never": "कभी नहीं",
+        "habit_no": "नहीं",
+        "habit_yes": "हाँ",
         "habit_occasional": "कभी-कभी",
         "habit_regular": "नियमित",
         "habit_former": "पूर्व",
+        "activity_active": "सक्रिय (≥150 मिनट/सप्ताह)",
+        "activity_sedentary": "गत्यात्मक (सुस्त)",
         
         # Advanced Settings
         "signal_processing": "सिग्नल प्रोसेसिंग",
@@ -743,7 +770,13 @@ TRANSLATIONS = {
         
         # Risk Assessment Labels
         "risk_assessment_experimental": "जोखिम मूल्यांकन (अनुमानी, प्रायोगिक)",
-        "risk_summary_low": "आपका जोखिम स्कोर कम है। अपनी स्वस्थ जीवनशैली की आदतों को बनाए रखना जारी रखें।",
+        "recommendation": "सिफारिश",
+        "view_details": "विस्तृत कारक देखें",
+        "risk_factors_title": "पहचाने गए जोखिम कारक",
+        "protective_factors_title": "पहचाने गए सुरक्षात्मक कारक",
+        "no_risk_factors": "कोई महत्वपूर्ण जोखिम कारक नहीं पहचाना गया",
+        "no_protective_factors": "कोई विशेष सुरक्षात्मक कारक उजागर नहीं हुआ",
+        "risk_summary_low": "आपका जोखिम प्रोफ़ाइल वर्तमान में कम है। स्वस्थ आदतों को बनाए रखना जारी रखें।",
         "risk_summary_moderate": "आपका जोखिम स्कोर मध्यम है। अपने समग्र जोखिम को कम करने के लिए ऊपर सूचीबद्ध जोखिम कारकों में सुधार करने पर विचार करें।",
         "risk_summary_high": "आपका जोखिम स्कोर उच्च है। हम दृढ़ता से अनुशंसा करते हैं कि आप एक स्वास्थ्य सेवा पेशेवर से परामर्श करें और ऊपर सूचीबद्ध जोखिम कारकों को संबोधित करें।",
         

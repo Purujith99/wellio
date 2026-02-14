@@ -35,6 +35,8 @@ class SessionData:
     sleep: float
     smoking: str
     drinking: str
+    diabetes: str
+    physical_activity: str
     
     # Vitals
     heart_rate: float
@@ -44,11 +46,12 @@ class SessionData:
     bp_diastolic: Optional[float]
     spo2: Optional[float]
     hrv_sdnn: float
+    hrv_rmssd: Optional[float]
     hrv_pnn50: float
     rr_intervals_count: int
     
     # Risk Assessment
-    risk_score: int
+    risk_score: float
     risk_level: str
     risk_factors: List[str]
     protective_factors: List[str]

@@ -905,6 +905,34 @@ with st.sidebar.expander(t("user_profile_title"), expanded=not st.session_state.
             index=smoking_index,
             placeholder="Select Smoking Status"
         )
+
+        # Diabetes options
+        diabetes_options = ["habit_no", "habit_yes"]
+        diabetes_display = {opt: t(opt) for opt in diabetes_options}
+        saved_diabetes = st.session_state.get("profile_diabetes")
+        diabetes_index = diabetes_options.index(saved_diabetes) if saved_diabetes in diabetes_options else None
+        
+        diabetes = st.selectbox(
+            t("diabetes_label"),
+            options=diabetes_options,
+            format_func=lambda x: diabetes_display[x],
+            key="form_profile_diabetes",
+            index=diabetes_index
+        )
+
+        # Physical Activity options
+        activity_options = ["activity_active", "activity_sedentary"]
+        activity_display = {opt: t(opt) for opt in activity_options}
+        saved_activity = st.session_state.get("profile_activity")
+        activity_index = activity_options.index(saved_activity) if saved_activity in activity_options else None
+
+        activity = st.selectbox(
+            t("physical_activity_label"),
+            options=activity_options,
+            format_func=lambda x: activity_display[x],
+            key="form_profile_activity",
+            index=activity_index
+        )
         
         # Drinking options
         drinking_options = ["never", "occasional", "regular", "former"]
@@ -924,7 +952,8 @@ with st.sidebar.expander(t("user_profile_title"), expanded=not st.session_state.
         submitted = st.form_submit_button(t("save_profile_button"))
         if submitted:
             # Validation: Check if any field is None
-            if any(x is None for x in [age, gender, height, weight, diet, exercise, sleep, smoking, drinking]):
+            required_fields = [age, gender, height, weight, diet, exercise, sleep, smoking, drinking, diabetes, activity]
+            if any(x is None for x in required_fields):
                 st.error("Please fill in all fields to save your profile.")
             else:
                 # Map form values to main session state keys expected by the app
@@ -937,6 +966,8 @@ with st.sidebar.expander(t("user_profile_title"), expanded=not st.session_state.
                 st.session_state["profile_sleep"] = sleep
                 st.session_state["profile_smoking"] = smoking
                 st.session_state["profile_drinking"] = drinking
+                st.session_state["profile_diabetes"] = diabetes
+                st.session_state["profile_activity"] = activity
                 
                 st.session_state["profile_completed"] = True
                 
@@ -2184,134 +2215,172 @@ if uploaded_file is not None or recorded_file_path is not None:
             def compute_profile_risk():
                 # Read profile values from session state (defaults should exist)
                 age = st.session_state.get("profile_age", 30)
-                gender = st.session_state.get("profile_gender", "Prefer not to say")
                 height = st.session_state.get("profile_height", 170)
                 weight = st.session_state.get("profile_weight", 70)
-                diet = st.session_state.get("profile_diet", "Non-Vegetarian")
-                exercise = st.session_state.get("profile_exercise", "3–4x/week")
-                sleep = st.session_state.get("profile_sleep", 7.0)
-                smoking = st.session_state.get("profile_smoking", "Never")
-                drinking = st.session_state.get("profile_drinking", "Never")
+                smoking = st.session_state.get("profile_smoking", "never")
+                diabetes = st.session_state.get("profile_diabetes", "habit_no")
+                activity = st.session_state.get("profile_activity", "activity_active")
+                
+                # Vital signs from analysis result
+                # vitals is available in the outer scope
+                hr = getattr(vitals, 'heart_rate_bpm', None)
+                hrv_rmssd = getattr(vitals, 'hrv_rmssd', None)
+                bp_sys = getattr(vitals, 'bp_systolic', None)
+                spo2 = getattr(vitals, 'spo2', None)
 
-                score = 0
                 risk_factors = []
                 protective_factors = []
 
-                # AGE: <30 → 0, 30–45 → +1, 46–60 → +2, >60 → +3
-                if age < 30:
-                    protective_factors.append(f"Age under 30")
-                elif age <= 45:
-                    score += 1
-                    risk_factors.append(f"Age {age}")
-                elif age <= 60:
-                    score += 2
-                    risk_factors.append(f"Age {age}")
-                else:
-                    score += 3
-                    risk_factors.append(f"Age {age}")
-
-                # BMI: 18.5–24.9 → 0, 25–29.9 → +1, <18.5 or ≥30 → +2
-                try:
-                    bmi = weight / ((height/100.0)**2)
-                except Exception:
-                    bmi = 22.0
+                # 1) Demographic & Profile Risk (Max = 3)
+                demo_score = 0.0
                 
-                if 18.5 <= bmi <= 24.9:
-                    protective_factors.append(f"Healthy BMI {bmi:.1f}")
-                elif 25 <= bmi <= 29.9:
-                    score += 1
-                    risk_factors.append(f"Overweight BMI {bmi:.1f}")
+                # AGE
+                if age < 30:
+                    protective_factors.append(f"✅ {t('risk_factor_age')}: {age} (<30)")
+                elif 30 <= age <= 40:
+                    demo_score += 0.5
+                    risk_factors.append(f"⚠️ {t('risk_factor_age')}: {age} (30-40)")
+                elif 41 <= age <= 50:
+                    demo_score += 1.0
+                    risk_factors.append(f"⚠️ {t('risk_factor_age')}: {age} (41-50)")
+                elif 51 <= age <= 60:
+                    demo_score += 1.5
+                    risk_factors.append(f"⚠️ {t('risk_factor_age')}: {age} (51-60)")
                 else:
-                    score += 2
-                    if bmi < 18.5:
-                        risk_factors.append(f"Underweight BMI {bmi:.1f}")
-                    else:
-                        risk_factors.append(f"Obese BMI {bmi:.1f}")
+                    demo_score += 2.0
+                    risk_factors.append(f"⚠️ {t('risk_factor_age')}: {age} (>60)")
+                
+                # BMI
+                try:
+                    bmi_val = weight / ((height/100.0)**2)
+                except Exception:
+                    bmi_val = 22.0
+                
+                if 18.5 <= bmi_val <= 24.9:
+                    protective_factors.append(f"✅ {t('risk_factor_bmi')}: {bmi_val:.1f} (Normal)")
+                elif 25 <= bmi_val <= 29.9:
+                    demo_score += 0.5
+                    risk_factors.append(f"⚠️ {t('risk_factor_bmi')}: {bmi_val:.1f} (Overweight)")
+                elif bmi_val >= 30:
+                    demo_score += 1.0
+                    risk_factors.append(f"⚠️ {t('risk_factor_bmi')}: {bmi_val:.1f} (Obese)")
+                
+                demo_score = min(demo_score, 3.0)
 
-                # DIET: Vegetarian → 0, Non-vegetarian → +1
-                diet_str = str(diet).lower()
-                if "veg" in diet_str and "non" not in diet_str:
-                    protective_factors.append("Vegetarian diet")
-                else:
-                    score += 1
-                    risk_factors.append("Non-vegetarian diet")
+                # 2) Vital Sign Risk (Max = 5)
+                vital_score = 0.0
+                
+                # HEART RATE: 60-80=0, 81-90=0.5, 91-100=1, >100=1.5, <50=1
+                if hr is not None:
+                    if 60 <= hr <= 80:
+                        protective_factors.append(f"✅ {t('risk_factor_hr')}: {hr:.0f} BPM")
+                    elif 81 <= hr <= 90:
+                        vital_score += 0.5
+                        risk_factors.append(f"⚠️ {t('risk_factor_hr')}: {hr:.0f} BPM (Elevated)")
+                    elif 91 <= hr <= 100:
+                        vital_score += 1.0
+                        risk_factors.append(f"⚠️ {t('risk_factor_hr')}: {hr:.0f} BPM (High)")
+                    elif hr > 100:
+                        vital_score += 1.5
+                        risk_factors.append(f"⚠️ {t('risk_factor_hr')}: {hr:.0f} BPM (Tachycardia)")
+                    elif hr < 50:
+                        vital_score += 1.0
+                        risk_factors.append(f"⚠️ {t('risk_factor_hr')}: {hr:.0f} BPM (Bradycardia)")
+                
+                # HRV (RMSSD): >50=0, 30-50=0.5, 20-30=1, <20=1.5
+                if hrv_rmssd is not None:
+                    if hrv_rmssd > 50:
+                        protective_factors.append(f"✅ HRV (RMSSD): {hrv_rmssd:.1f}ms (Good)")
+                    elif 30 <= hrv_rmssd <= 50:
+                        vital_score += 0.5
+                        risk_factors.append(f"⚠️ {t('risk_factor_hrv')}: {hrv_rmssd:.1f}ms (Moderate)")
+                    elif 20 <= hrv_rmssd < 30:
+                        vital_score += 1.0
+                        risk_factors.append(f"⚠️ {t('risk_factor_hrv')}: {hrv_rmssd:.1f}ms (Low)")
+                    elif hrv_rmssd < 20:
+                        vital_score += 1.5
+                        risk_factors.append(f"⚠️ {t('risk_factor_hrv')}: {hrv_rmssd:.1f}ms (Very Low)")
+                
+                # BLOOD PRESSURE (Systolic): <120=0, 120-129=0.5, 130-139=1, >=140=1.5
+                if bp_sys is not None:
+                    if bp_sys < 120:
+                        protective_factors.append(f"✅ {t('risk_factor_bp')}: {bp_sys:.0f} mmHg (Optimal)")
+                    elif 120 <= bp_sys <= 129:
+                        vital_score += 0.5
+                        risk_factors.append(f"⚠️ {t('risk_factor_bp')}: {bp_sys:.0f} mmHg (Elevated)")
+                    elif 130 <= bp_sys <= 139:
+                        vital_score += 1.0
+                        risk_factors.append(f"⚠️ {t('risk_factor_bp')}: {bp_sys:.0f} mmHg (Stage 1)")
+                    elif bp_sys >= 140:
+                        vital_score += 1.5
+                        risk_factors.append(f"⚠️ {t('risk_factor_bp')}: {bp_sys:.0f} mmHg (Stage 2)")
+                
+                # SpO2: >=97%=0, 94-96%=0.5, <94%=1
+                if spo2 is not None:
+                    if spo2 >= 97:
+                        protective_factors.append(f"✅ {t('risk_factor_spo2')}: {spo2:.0f}% (Normal)")
+                    elif 94 <= spo2 <= 96:
+                        vital_score += 0.5
+                        risk_factors.append(f"⚠️ {t('risk_factor_spo2')}: {spo2:.0f}% (Mildly Low)")
+                    elif spo2 < 94:
+                        vital_score += 1.0
+                        risk_factors.append(f"⚠️ {t('risk_factor_spo2')}: {spo2:.0f}% (Low)")
+                
+                vital_score = min(vital_score, 5.0)
 
-                # EXERCISE: 5x+/week → 0, 3–4x/week → +1, 1–2x/week → +2, Never → +3
-                ex = str(exercise).lower()
-                if "daily" in ex or "5" in ex:
-                    protective_factors.append(f"Regular exercise: {exercise}")
-                elif "3" in ex or "4" in ex:
-                    score += 1
-                    risk_factors.append(f"Moderate exercise: {exercise}")
-                elif "1" in ex or "2" in ex:
-                    score += 2
-                    risk_factors.append(f"Low exercise: {exercise}")
-                elif "never" in ex:
-                    score += 3
-                    risk_factors.append(f"No exercise")
-                else:
-                    score += 1
-                    risk_factors.append(f"Exercise: {exercise}")
-
-                # SLEEP: 7–8 hours → 0, 6–7 hours → +1, <6 hours → +2, >9 hours → +1
-                if 7 <= sleep <= 8:
-                    protective_factors.append(f"Adequate sleep: {sleep}h")
-                elif 6 <= sleep < 7:
-                    score += 1
-                    risk_factors.append(f"Slightly low sleep: {sleep}h")
-                elif sleep < 6:
-                    score += 2
-                    risk_factors.append(f"Insufficient sleep: {sleep}h")
-                elif sleep > 9:
-                    score += 1
-                    risk_factors.append(f"Excessive sleep: {sleep}h")
-
-                # SMOKING: Never → 0, Former → +1, Occasional → +2, Regular → +4
+                # 3) Lifestyle & Medical History Risk (Max = 2)
+                lifestyle_score = 0.0
+                
+                # SMOKING: No=0, Occasional=0.5, Regular=1
                 sm = str(smoking).lower()
                 if "never" in sm:
-                    protective_factors.append("No smoking history")
-                elif "former" in sm:
-                    score += 1
-                    risk_factors.append("Former smoker")
-                elif "occasional" in sm or "occ" in sm:
-                    score += 2
-                    risk_factors.append("Occasional smoking")
+                    protective_factors.append(f"✅ {t('risk_factor_smoking')}: Never")
+                elif "occasional" in sm or "occ" in sm or "former" in sm:
+                    lifestyle_score += 0.5
+                    risk_factors.append(f"⚠️ {t('risk_factor_smoking')}: Occasional/Former")
                 elif "regular" in sm:
-                    score += 4
-                    risk_factors.append("Regular smoking")
+                    lifestyle_score += 1.0
+                    risk_factors.append(f"⚠️ {t('risk_factor_smoking')}: Regular")
+                    
+                # DIABETES: No=0, Yes=1
+                diab = str(diabetes).lower()
+                if "yes" in diab:
+                    lifestyle_score += 1.0
+                    risk_factors.append(f"⚠️ {t('risk_factor_diabetes')}: Yes")
+                else:
+                    protective_factors.append(f"✅ {t('risk_factor_diabetes')}: No")
+                    
+                # PHYSICAL ACTIVITY: Active=0, Sedentary=0.5
+                act = str(activity).lower()
+                if "active" in act:
+                    protective_factors.append(f"✅ {t('risk_factor_activity')}: Active")
+                else:
+                    lifestyle_score += 0.5
+                    risk_factors.append(f"⚠️ {t('risk_factor_activity')}: Sedentary")
+                    
+                lifestyle_score = min(lifestyle_score, 2.0)
 
-                # DRINKING: Never → 0, Occasional → +2, Regular → +3, Former → +1
-                # Note: The user's spec mentions "Rare (≤1x/month)" but the dropdown has "Occasional"
-                # Mapping: Never → 0, Former → +1, Occasional → +2, Regular → +3
-                dr = str(drinking).lower()
-                if "never" in dr:
-                    protective_factors.append("No alcohol consumption")
-                elif "former" in dr:
-                    score += 1
-                    risk_factors.append("Former drinker")
-                elif "occasional" in dr or "occ" in dr:
-                    score += 2
-                    risk_factors.append("Occasional drinking")
-                elif "regular" in dr:
-                    score += 3
-                    risk_factors.append("Regular drinking")
-
-                # Clamp score between 0 and 10
-                score = int(max(0, min(10, score)))
-
-                # Map to level: 0–3 → Low, 4–6 → Moderate, 7–10 → High
-                if score <= 3:
+                # FINAL SCORE
+                total_score = demo_score + vital_score + lifestyle_score
+                total_score = float(round(min(10.0, total_score), 1))
+                
+                if total_score <= 3.0:
                     level = "Low"
-                elif score <= 6:
+                elif total_score <= 6.0:
                     level = "Moderate"
                 else:
                     level = "High"
 
                 return {
-                    "score": score, 
+                    "score": total_score, 
                     "level": level, 
                     "risk_factors": risk_factors,
-                    "protective_factors": protective_factors
+                    "protective_factors": protective_factors,
+                    "breakdown": {
+                        "demographic": demo_score,
+                        "vitals": vital_score,
+                        "lifestyle": lifestyle_score
+                    }
                 }
 
             profile_risk = compute_profile_risk()
@@ -2350,6 +2419,24 @@ if uploaded_file is not None or recorded_file_path is not None:
             
             st.info(f"**{t('summary')}:** {summary}")
             
+            # Show identified factors
+            with st.expander(f"🔍 {t('view_details')}", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"### ⚠️ {t('risk_factors_title')}")
+                    if profile_risk["risk_factors"]:
+                        for factor in profile_risk["risk_factors"]:
+                            st.write(f"- {factor}")
+                    else:
+                        st.write(f"- {t('no_risk_factors')}")
+                with col2:
+                    st.markdown(f"### ✅ {t('protective_factors_title')}")
+                    if profile_risk["protective_factors"]:
+                        for factor in profile_risk["protective_factors"]:
+                            st.write(f"- {factor}")
+                    else:
+                        st.write(f"- {t('no_protective_factors')}")
+                        
             st.divider()
             
             # ================================================================
@@ -2386,6 +2473,8 @@ if uploaded_file is not None or recorded_file_path is not None:
                             exercise_frequency=exercise,
                             sleep_hours=sleep,
                             smoking_habits=smoking,
+                            diabetes=st.session_state.get("profile_diabetes", "No"),
+                            physical_activity=st.session_state.get("profile_activity", "Active"),
                             lang=get_current_language()  # Pass current language
                         )
                         
@@ -2643,21 +2732,24 @@ if uploaded_file is not None or recorded_file_path is not None:
                         sleep=st.session_state.get("profile_sleep", 7.0),
                         smoking=st.session_state.get("profile_smoking", "Never"),
                         drinking=st.session_state.get("profile_drinking", "Never"),
+                        diabetes=st.session_state.get("profile_diabetes", "No"),
+                        physical_activity=st.session_state.get("profile_activity", "Active"),
                         
                         # Vitals
                         heart_rate=float(vitals.heart_rate_bpm),
                         heart_rate_confidence=vitals.heart_rate_confidence,
-                        stress_level=float(vitals.stress_level) if not np.isnan(vitals.stress_level) else 5.0,
+                        stress_level=float(vitals.stress_level) if vitals.stress_level is not None and not np.isnan(vitals.stress_level) else 5.0,
                         bp_systolic=float(vitals.bp_systolic) if vitals.bp_systolic is not None else None,
                         bp_diastolic=float(vitals.bp_diastolic) if vitals.bp_diastolic is not None else None,
                         spo2=float(vitals.spo2) if vitals.spo2 is not None else None,
-                        hrv_sdnn=float(vitals.sdnn),
-                        hrv_pnn50=float(vitals.pnn50),
+                        hrv_sdnn=float(vitals.sdnn) if vitals.sdnn is not None else 0.0,
+                        hrv_rmssd=float(vitals.hrv_rmssd) if hasattr(vitals, 'hrv_rmssd') and vitals.hrv_rmssd is not None else None,
+                        hrv_pnn50=float(vitals.pnn50) if vitals.pnn50 is not None else 0.0,
                         rr_intervals_count=len(vitals.rr_intervals) + 1 if vitals.rr_intervals.size > 0 else 0,
                         
                         # Risk
-                        risk_score=risk_score,
-                        risk_level=risk_level,
+                        risk_score=float(profile_risk["score"]),
+                        risk_level=profile_risk["level"],
                         risk_factors=profile_risk["risk_factors"],
                         protective_factors=profile_risk["protective_factors"],
                         

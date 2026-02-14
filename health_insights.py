@@ -42,6 +42,8 @@ def build_health_insights_prompt(
     exercise_frequency: str,
     sleep_hours: float,
     smoking_habits: str,
+    diabetes: str = "No",
+    physical_activity: str = "Active",
     lang: str = "en"
 ) -> str:
     """
@@ -75,8 +77,10 @@ USER PROFILE:
 - Weight: {weight:.1f} kg
 - Diet: {diet}
 - Exercise Frequency: {exercise_frequency}
+- Physical Activity level: {physical_activity}
 - Sleep Hours: {sleep_hours:.1f} hours/night
 - Smoking Habits: {smoking_habits}
+- Diabetes: {diabetes}
 
 TASK: Provide health insights in the following EXACT format. Each section should be concise and informative.
 
@@ -192,6 +196,8 @@ def get_health_insights(
     exercise_frequency: str,
     sleep_hours: float,
     smoking_habits: str,
+    diabetes: str = "No",
+    physical_activity: str = "Active",
     api_key: str = None,
     lang: str = "en"
 ) -> HealthInsightResponse:
@@ -232,6 +238,8 @@ def get_health_insights(
             exercise_frequency,
             sleep_hours,
             smoking_habits,
+            diabetes,
+            physical_activity,
             lang
         )
         
