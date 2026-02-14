@@ -1614,7 +1614,7 @@ if HAVE_HISTORY and st.session_state.get("viewing_all_history", False):
 # HEALTH ASSISTANT CHATBOT (HOMEPAGE)
 # ============================================================================
 
-if HAVE_CHATBOT and HAVE_GEMINI:
+if HAVE_CHATBOT and HAVE_AI_INSIGHTS:
     st.divider()
 
     @st.dialog(f"🤖 {t('chatbot_title')}")
@@ -2551,7 +2551,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                             translated_level = t(level_key)
                             summary_text += t("audio_risk").format(score=risk_score, level=translated_level) + " "
                             
-                            if HAVE_GEMINI and 'insights' in locals() and not insights.error:
+                            if HAVE_AI_INSIGHTS and 'insights' in locals() and not insights.error:
                                 summary_text += t("audio_insights_intro") + " "
                                 if insights.recommendations:
                                     # Clean up markdown bullets if present
@@ -2706,7 +2706,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                     if not hasattr(vitals, 'stress_level'): vitals.stress_level = getattr(vitals, 'stress_index', 0.0)
                     
                     # Get AI insights if available
-                    if HAVE_GEMINI and 'insights' in locals():
+                    if HAVE_AI_INSIGHTS and 'insights' in locals():
                         detailed_analysis = insights.detailed_analysis if not insights.error else ""
                         recommendations = insights.recommendations if not insights.error else []
                         symptoms_to_watch = insights.symptoms_to_watch if not insights.error else []
