@@ -2460,12 +2460,25 @@ if uploaded_file is not None or recorded_file_path is not None:
                         smoking = st.session_state.get("profile_smoking", "Never")
                         
                         # Call OpenAI API (API key is retrieved from .env or session state)
+                        # Ensure all inputs are valid floats, handling None and NaN
+                        
+                        # Helper to safely get float value
+                        def safe_float(val, default):
+                            try:
+                                if val is None:
+                                    return default
+                                if np.isnan(val):
+                                    return default
+                                return float(val)
+                            except Exception:
+                                return default
+
                         insights = get_health_insights(
-                            pulse_bpm=vitals.heart_rate_bpm,
-                            stress_index=vitals.stress_level if not np.isnan(vitals.stress_level) else 5.0,
-                            estimated_sbp=vitals.bp_systolic if vitals.bp_systolic is not None else 120.0,
-                            estimated_dbp=vitals.bp_diastolic if vitals.bp_diastolic is not None else 80.0,
-                            estimated_spo2=vitals.spo2 if vitals.spo2 is not None else 98.0,
+                            pulse_bpm=safe_float(vitals.heart_rate_bpm, 70.0),
+                            stress_index=safe_float(vitals.stress_level, 5.0),
+                            estimated_sbp=safe_float(vitals.bp_systolic, 120.0),
+                            estimated_dbp=safe_float(vitals.bp_diastolic, 80.0),
+                            estimated_spo2=safe_float(vitals.spo2, 98.0),
                             age=age,
                             gender=gender,
                             height=height,

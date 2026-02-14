@@ -82,14 +82,21 @@ def get_supabase_client() -> Optional[Client]:
     # Keys must be provided via environment variables, .env file, or secrets.toml
 
     
-    # Ensure environment is loaded just in case
-    if not url or not key:
-        from dotenv import find_dotenv
-        env_file = find_dotenv()
-        load_dotenv(env_file, override=True)
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
     
+    # Priority 3: Manual .env file reading (Last resort fallback)
+    if not url or not key:
+        env_path = Path(".env")
+        try:
+            if env_path.exists():
+                with open(env_path, "r") as f:
+                    for line in f:
+                        if line.startswith("SUPABASE_URL="):
+                            url = line.split("=", 1)[1].strip()
+                        elif line.startswith("SUPABASE_KEY="):
+                            key = line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+
     if not url or not key:
         from dotenv import find_dotenv
         env_file = find_dotenv()
@@ -97,7 +104,14 @@ def get_supabase_client() -> Optional[Client]:
         details += f"CWD={os.getcwd()}, .env={env_file or 'NOT FOUND'}. "
         if env_file and os.path.exists(env_file):
              details += f"File size={os.path.getsize(env_file)} bytes."
-        return None, f"Supabase credentials not found. {details} Please check your .env file or Streamlit secrets."
+             
+        error_msg = (
+            f"Supabase credentials not found. {details}\n\n"
+            "IF YOU ARE ON STREAMLIT CLOUD: You must add 'SUPABASE_URL' and 'SUPABASE_KEY' "
+            "to your App Settings > Secrets.\n\n"
+            "IF YOU ARE LOCAL: Ensure you have a .env file with these keys."
+        )
+        return None, error_msg
     
     try:
         return create_client(url, key), None
