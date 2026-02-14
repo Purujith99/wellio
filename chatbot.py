@@ -36,7 +36,33 @@ def get_openai_api_key() -> Optional[str]:
         pass
     
     # 2. Try environment variable (for local dev)
-    return os.getenv("OPENAI_API_KEY")
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        # Fallback: Try loading .env again explicitly
+        from dotenv import load_dotenv, find_dotenv
+        env_file = find_dotenv()
+        if env_file:
+            load_dotenv(env_file, override=True)
+            key = os.getenv("OPENAI_API_KEY")
+            
+    if not key:
+        print(f"DEBUG: OpenAI API Key missing. Env path: {env_path}, Exists: {env_path.exists()}")
+        # Last resort: Manual file read
+        try:
+            if env_path.exists():
+                with open(env_path, "r") as f:
+                    for line in f:
+                        if line.startswith("OPENAI_API_KEY="):
+                            key = line.split("=", 1)[1].strip()
+                            # Remove quotes if present
+                            if (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
+                                key = key[1:-1]
+                            print("DEBUG: Manually read key from file")
+                            break
+        except Exception as e:
+            print(f"DEBUG: Error manually reading .env: {e}")
+
+    return key
 
 try:
     from openai import OpenAI
