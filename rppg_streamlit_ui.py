@@ -43,8 +43,9 @@ from camera_component import camera_component, save_camera_video
 from streamlit_mic_recorder import speech_to_text
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv(override=True)
+# Load environment variables with absolute path
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path, override=True)
 
 # Explicit Injection of Supabase Credentials REMOVED
 # Ensure SUPABASE_URL and SUPABASE_KEY are in your .env file or environment variables

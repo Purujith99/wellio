@@ -7,10 +7,12 @@ from openai import OpenAI
 from dataclasses import dataclass
 from typing import Optional
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv(override=True)
+# Load environment variables with absolute path
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path, override=True)
 
 # Export API_KEY placeholder for backward compatibility
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

@@ -17,6 +17,11 @@ from typing import List, Optional, Dict
 import os
 import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables with absolute path
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path, override=True)
 
 try:
     from openai import OpenAI
