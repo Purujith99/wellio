@@ -14,14 +14,15 @@ IMPORTANT: This chatbot is NOT a medical professional and does NOT:
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import List, Optional, Dict
+import os
 import json
 from pathlib import Path
 
 try:
-    from groq import Groq
-    HAVE_GROQ = True
+    from openai import OpenAI
+    HAVE_OPENAI = True
 except ImportError:
-    HAVE_GROQ = False
+    HAVE_OPENAI = False
 
 from session_storage import SessionData, list_sessions
 from trend_analysis import get_trend_analysis, TrendAnalysis
@@ -210,7 +211,8 @@ def build_chatbot_context(
         ChatContext object
     """
     # Load historical sessions
-    sessions = list_sessions(username)
+    import session_storage
+    sessions = session_storage.list_sessions(username)
     recent_sessions = sessions[:10] if sessions else []
     
     # Use latest from history if not provided
@@ -241,13 +243,7 @@ def build_chatbot_context(
 
 def format_context_for_prompt(context: ChatContext) -> str:
     """
-    Format context into readable text for LLM prompt.
-    
-    Args:
-        context: ChatContext object
-        
-    Returns:
-        Formatted context string
+    Format context into readable text for AI prompt.
     """
     parts = []
     
@@ -256,13 +252,16 @@ def format_context_for_prompt(context: ChatContext) -> str:
     parts.append(f"- Age: {context.user_profile.get('age', 'Unknown')}")
     parts.append(f"- Gender: {context.user_profile.get('gender', 'Unknown')}")
     
-    lifestyle = context.user_profile.get('lifestyle', {})
-    if lifestyle:
-        parts.append(f"- Diet: {lifestyle.get('diet', 'Unknown')}")
-        parts.append(f"- Exercise: {lifestyle.get('exercise', 'Unknown')}")
-        parts.append(f"- Sleep: {lifestyle.get('sleep', 'Unknown')} hours/night")
-        parts.append(f"- Smoking: {lifestyle.get('smoking', 'Unknown')}")
-        parts.append(f"- Drinking: {lifestyle.get('drinking', 'Unknown')}")
+    # Access profile fields directly from the dict instead of a nested 'lifestyle' key
+    # as the session state management seems to store them at the top level
+    profile = context.user_profile
+    parts.append(f"- Diet: {profile.get('diet', profile.get('profile_diet', 'Unknown'))}")
+    parts.append(f"- Exercise: {profile.get('exercise', profile.get('profile_exercise', 'Unknown'))}")
+    parts.append(f"- Sleep: {profile.get('sleep', profile.get('profile_sleep', 'Unknown'))} hours/night")
+    parts.append(f"- Smoking: {profile.get('smoking', profile.get('profile_smoking', 'Unknown'))}")
+    parts.append(f"- Drinking: {profile.get('drinking', profile.get('profile_drinking', 'Unknown'))}")
+    parts.append(f"- Diabetes: {profile.get('diabetes', profile.get('profile_diabetes', 'Unknown'))}")
+    parts.append(f"- Physical Activity: {profile.get('physical_activity', profile.get('profile_activity', 'Unknown'))}")
     
     # Latest vitals
     if context.latest_session:
@@ -324,21 +323,13 @@ def format_context_for_prompt(context: ChatContext) -> str:
 def generate_chatbot_response(
     user_message: str,
     context: ChatContext,
-    groq_api_key: Optional[str] = None,
+    openai_api_key: Optional[str] = None,
     lang: str = "en"
 ) -> ChatMessage:
     """
-    Generate chatbot response using Groq API.
-    
-    Args:
-        user_message: User's message
-        context: User context
-        groq_api_key: Groq API key
-        
-    Returns:
-        ChatMessage with response
+    Generate chatbot response using OpenAI API.
     """
-    if not HAVE_GROQ:
+    if not HAVE_OPENAI:
         return ChatMessage(
             role="assistant",
             content=get_text("chatbot_unavailable", lang),
@@ -375,22 +366,21 @@ IMPORTANT INSTRUCTION: You must respond in {lang_name}.
 Please provide a helpful, informative response based on the user's data and question. Remember to follow all the rules in your system prompt."""
     
     try:
-        import os
-        if groq_api_key is None:
-            groq_api_key = os.getenv("GROQ_API_KEY")
+        if openai_api_key is None:
+            openai_api_key = os.getenv("OPENAI_API_KEY")
             
-        if not groq_api_key:
+        if not openai_api_key:
              return ChatMessage(
                 role="assistant",
-                content="Groq API key not found. Please check your configuration.",
+                content="OpenAI API key not found. Please check your configuration.",
                 timestamp=datetime.now().isoformat(),
                 risk_level="low"
             )
 
-        client = Groq(api_key=groq_api_key)
+        client = OpenAI(api_key=openai_api_key)
         
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
@@ -401,7 +391,7 @@ Please provide a helpful, informative response based on the user's data and ques
         
         content = response.choices[0].message.content.strip()
         
-        # Filter unsafe language (basic check)
+        # Filter unsafe language
         content = filter_unsafe_response(content)
         
         return ChatMessage(
@@ -424,14 +414,7 @@ Please provide a helpful, informative response based on the user's data and ques
 def filter_unsafe_response(response: str) -> str:
     """
     Filter out potentially unsafe language from response.
-    
-    Args:
-        response: LLM response
-        
-    Returns:
-        Filtered response
     """
-    # Check for forbidden phrases (basic filtering)
     forbidden_phrases = [
         "you have ", "you are diagnosed", "you suffer from",
         "take this medication", "i diagnose", "prescription for"
@@ -440,7 +423,6 @@ def filter_unsafe_response(response: str) -> str:
     response_lower = response.lower()
     for phrase in forbidden_phrases:
         if phrase in response_lower:
-            # Add a safety note (using English as this is a fallback safety measure)
             response += "\n\n" + get_text("chatbot_safety_note", "en")
             break
     
@@ -459,22 +441,16 @@ def get_chat_storage_path(username: str) -> Path:
 
 
 def save_chat_history(username: str, messages: List[ChatMessage]) -> bool:
-    """
-    Save chat history for a user.
-    
-    Args:
-        username: User identifier
-        messages: List of chat messages
-        
-    Returns:
-        True if successful
-    """
+    """Save chat history for a user."""
     try:
         filepath = get_chat_storage_path(username)
-        
-        # Convert to dict
         messages_dict = [asdict(msg) for msg in messages]
         
+        # Remove audio_bytes as it's not JSON serializable and usually large
+        for msg in messages_dict:
+            if 'audio_bytes' in msg:
+                msg['audio_bytes'] = None
+
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(messages_dict, f, indent=2, ensure_ascii=False)
         
@@ -485,15 +461,7 @@ def save_chat_history(username: str, messages: List[ChatMessage]) -> bool:
 
 
 def load_chat_history(username: str) -> List[ChatMessage]:
-    """
-    Load chat history for a user.
-    
-    Args:
-        username: User identifier
-        
-    Returns:
-        List of chat messages
-    """
+    """Load chat history for a user."""
     try:
         filepath = get_chat_storage_path(username)
         
@@ -503,9 +471,7 @@ def load_chat_history(username: str) -> List[ChatMessage]:
         with open(filepath, 'r', encoding='utf-8') as f:
             messages_dict = json.load(f)
         
-        # Convert to ChatMessage objects
         messages = [ChatMessage(**msg) for msg in messages_dict]
-        
         return messages
     except Exception as e:
         print(f"Error loading chat history: {e}")
@@ -513,15 +479,7 @@ def load_chat_history(username: str) -> List[ChatMessage]:
 
 
 def clear_chat_history(username: str) -> bool:
-    """
-    Clear chat history for a user.
-    
-    Args:
-        username: User identifier
-        
-    Returns:
-        True if successful
-    """
+    """Clear chat history for a user."""
     try:
         filepath = get_chat_storage_path(username)
         if filepath.exists():

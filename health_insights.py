@@ -1,9 +1,9 @@
 """
 Health Insights Module
-Generates AI-powered health explanations using the Groq API
+Generates AI-powered health explanations using the OpenAI API
 """
 
-from groq import Groq
+from openai import OpenAI
 from dataclasses import dataclass
 from typing import Optional
 import os
@@ -12,14 +12,13 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv(override=True)
 
-# Export GROQ_API_KEY placeholder for backward compatibility
-# It is better to use os.getenv() directly inside functions
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Export API_KEY placeholder for backward compatibility
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
 @dataclass
 class HealthInsightResponse:
-    """Structured response from Groq for health insights"""
+    """Structured response from AI for health insights"""
     detailed_analysis: str
     risk_factors: list[str]
     positive_indicators: list[str]
@@ -47,7 +46,7 @@ def build_health_insights_prompt(
     lang: str = "en"
 ) -> str:
     """
-    Build a structured prompt for Groq that includes vitals and profile data.
+    Build a structured prompt for AI that includes vitals and profile data.
     Returns a prompt that requests 5 specific sections.
     """
     
@@ -106,9 +105,9 @@ Keep language simple and suitable for non-medical users.{lang_instruction}
     return prompt
 
 
-def parse_groq_response(response_text: str) -> HealthInsightResponse:
+def parse_ai_response(response_text: str) -> HealthInsightResponse:
     """
-    Parse the structured Groq response into the 5 sections.
+    Parse the structured AI response into the 5 sections.
     Returns a HealthInsightResponse dataclass.
     """
     
@@ -202,11 +201,11 @@ def get_health_insights(
     lang: str = "en"
 ) -> HealthInsightResponse:
     """
-    Main function to fetch and parse health insights from Groq.
+    Main function to fetch and parse health insights from OpenAI.
     
     Args:
         vitals and profile data as above
-        api_key: Groq API key (default provided)
+        api_key: OpenAI API key (default provided)
     
     Returns:
         HealthInsightResponse with parsed insights or error message
@@ -215,13 +214,13 @@ def get_health_insights(
     try:
         # Use provided api_key or get from environment
         if api_key is None:
-            api_key = os.getenv("GROQ_API_KEY")
+            api_key = os.getenv("OPENAI_API_KEY")
         
         if not api_key:
-            raise ValueError("The api_key client option must be set. Please check your GROQ_API_KEY in .env")
+            raise ValueError("The api_key client option must be set. Please check your OPENAI_API_KEY in .env")
         
-        # Initialize Groq client
-        client = Groq(api_key=api_key)
+        # Initialize OpenAI client
+        client = OpenAI(api_key=api_key)
         
         # Build prompt
         prompt = build_health_insights_prompt(
@@ -243,7 +242,7 @@ def get_health_insights(
             lang
         )
         
-        # Call Groq API
+        # Call OpenAI API
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -251,15 +250,15 @@ def get_health_insights(
                     "content": prompt,
                 }
             ],
-            model="llama-3.3-70b-versatile",
+            model="gpt-4o-mini",
             temperature=0.7,
             max_tokens=2000,
         )
         
         response_text = chat_completion.choices[0].message.content
         
-        # Parse response
-        insights = parse_groq_response(response_text)
+        # Parse response (same format as Groq)
+        insights = parse_ai_response(response_text)
         return insights
         
     except Exception as e:

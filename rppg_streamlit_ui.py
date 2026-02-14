@@ -56,10 +56,10 @@ from rppg_refactored import (
 )
 try:
     from health_insights import get_health_insights
-    HAVE_GEMINI = True
+    HAVE_AI_INSIGHTS = True
 except ImportError as e:
     print(f"Warning: Could not import health_insights: {e}")
-    HAVE_GEMINI = False
+    HAVE_AI_INSIGHTS = False
 
 try:
     from session_storage import (
@@ -2444,8 +2444,8 @@ if uploaded_file is not None or recorded_file_path is not None:
             # ================================================================
             st.subheader(f"💡 {t('health_insights_title')}")
             
-            # Display health insights if Gemini integration is available
-            if HAVE_GEMINI:
+            # Display health insights if AI module is available
+            if HAVE_AI_INSIGHTS:
                 with st.spinner(f"{t('generating_insights')}..."):
                     try:
                         # Collect profile data
@@ -2458,7 +2458,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                         sleep = st.session_state.get("profile_sleep", 7.0)
                         smoking = st.session_state.get("profile_smoking", "Never")
                         
-                        # Call Groq API (API key is hardcoded in health_insights.py)
+                        # Call OpenAI API (API key is retrieved from .env or session state)
                         insights = get_health_insights(
                             pulse_bpm=vitals.heart_rate_bpm,
                             stress_index=vitals.stress_level if not np.isnan(vitals.stress_level) else 5.0,
