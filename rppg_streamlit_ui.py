@@ -19,6 +19,7 @@ from io import BytesIO
 import shutil
 from typing import Optional
 import sys
+import time
 
 
 # Import translations module
