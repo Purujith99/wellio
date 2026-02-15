@@ -2006,6 +2006,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                     st.session_state.pop("selected_session_id", None)
                     st.session_state.pop("current_session", None)
                     st.session_state.pop("ai_insights", None)  # Clear cached insights
+                    st.session_state.pop("session_saved", None) # Clear saved flag
                     st.rerun()
             
             # ================================================================
@@ -2557,14 +2558,15 @@ if uploaded_file is not None or recorded_file_path is not None:
                         symptoms_to_watch = []
                     
                     with open("debug_log.txt", "a") as f:
-                        f.write(f"DEBUG {datetime.now()}: Checking for current_session in AUTOMATIC SAVE. In state: {'current_session' in st.session_state}\n")
-                        if 'current_session' in st.session_state:
-                             f.write(f"DEBUG {datetime.now()}: Found current_session with ID: {st.session_state['current_session'].session_id}\n")
+                        f.write(f"DEBUG {datetime.now()}: Checking for current_session in AUTOMATIC SAVE. In state: {'current_session' in st.session_state}. Saved flag: {st.session_state.get('session_saved', False)}\n")
 
                     # Create session data
                     # Check if we already have a current session to avoid duplicates
-                    if "current_session" in st.session_state:
-                         session_data = st.session_state["current_session"]
+                    # KEY FIX: Check a simple boolean flag to prevent infinite rerun loops
+                    if "current_session" in st.session_state or st.session_state.get("session_saved", False):
+                         if "current_session" in st.session_state:
+                             session_data = st.session_state["current_session"]
+
                     else:
                         session_data = SessionData(
                             session_id=str(uuid.uuid4()),
@@ -2623,6 +2625,7 @@ if uploaded_file is not None or recorded_file_path is not None:
                                 f.write(f"DEBUG {datetime.now()}: Session saved successfully. ID: {session_data.session_id}\n")
                             st.toast(f"✅ Session saved to history!") 
                             st.session_state["current_session"] = session_data
+                            st.session_state["session_saved"] = True # Mark as saved to prevent loop
                             # Force a rerun so the history sidebar updates immediately
                             st.rerun()
                         else:
