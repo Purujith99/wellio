@@ -134,6 +134,8 @@ if HAVE_SESSION_MANAGER:
             st.rerun()
 
 
+
+
 # ============================================================================
 # CUSTOM STYLING - SAGE GREEN THEME
 # ============================================================================
@@ -2557,9 +2559,6 @@ if uploaded_file is not None or recorded_file_path is not None:
                         recommendations = []
                         symptoms_to_watch = []
                     
-                    with open("debug_log.txt", "a") as f:
-                        f.write(f"DEBUG {datetime.now()}: Checking for current_session in AUTOMATIC SAVE. In state: {'current_session' in st.session_state}. Saved flag: {st.session_state.get('session_saved', False)}\n")
-
                     # Create session data
                     # Check if we already have a current session to avoid duplicates
                     # KEY FIX: Check a simple boolean flag to prevent infinite rerun loops
