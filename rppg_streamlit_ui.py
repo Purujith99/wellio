@@ -2004,6 +2004,8 @@ if uploaded_file is not None or recorded_file_path is not None:
                     st.session_state.pop("recorded_file_path", None)
                     st.session_state.pop("viewing_history", None)
                     st.session_state.pop("selected_session_id", None)
+                    st.session_state.pop("current_session", None)
+                    st.session_state.pop("ai_insights", None)  # Clear cached insights
                     st.rerun()
             
             # ================================================================
@@ -2459,38 +2461,44 @@ if uploaded_file is not None or recorded_file_path is not None:
                         sleep = st.session_state.get("profile_sleep", 7.0)
                         smoking = st.session_state.get("profile_smoking", "Never")
                         
-                        # Call OpenAI API (API key is retrieved from .env or session state)
-                        # Ensure all inputs are valid floats, handling None and NaN
-                        
-                        # Helper to safely get float value
-                        def safe_float(val, default):
-                            try:
-                                if val is None:
+                        # Check cache first
+                        if "ai_insights" in st.session_state:
+                            insights = st.session_state["ai_insights"]
+                        else:
+                            # Call OpenAI API (API key is retrieved from .env or session state)
+                            # Ensure all inputs are valid floats, handling None and NaN
+                            
+                            # Helper to safely get float value
+                            def safe_float(val, default):
+                                try:
+                                    if val is None:
+                                        return default
+                                    if np.isnan(val):
+                                        return default
+                                    return float(val)
+                                except Exception:
                                     return default
-                                if np.isnan(val):
-                                    return default
-                                return float(val)
-                            except Exception:
-                                return default
-
-                        insights = get_health_insights(
-                            pulse_bpm=safe_float(vitals.heart_rate_bpm, 70.0),
-                            stress_index=safe_float(vitals.stress_level, 5.0),
-                            estimated_sbp=safe_float(vitals.bp_systolic, 120.0),
-                            estimated_dbp=safe_float(vitals.bp_diastolic, 80.0),
-                            estimated_spo2=safe_float(vitals.spo2, 98.0),
-                            age=age,
-                            gender=gender,
-                            height=height,
-                            weight=weight,
-                            diet=diet,
-                            exercise_frequency=exercise,
-                            sleep_hours=sleep,
-                            smoking_habits=smoking,
-                            diabetes=st.session_state.get("profile_diabetes", "No"),
-                            physical_activity=st.session_state.get("profile_activity", "Active"),
-                            lang=get_current_language()  # Pass current language
-                        )
+    
+                            insights = get_health_insights(
+                                pulse_bpm=safe_float(vitals.heart_rate_bpm, 70.0),
+                                stress_index=safe_float(vitals.stress_level, 5.0),
+                                estimated_sbp=safe_float(vitals.bp_systolic, 120.0),
+                                estimated_dbp=safe_float(vitals.bp_diastolic, 80.0),
+                                estimated_spo2=safe_float(vitals.spo2, 98.0),
+                                age=age,
+                                gender=gender,
+                                height=height,
+                                weight=weight,
+                                diet=diet,
+                                exercise_frequency=exercise,
+                                sleep_hours=sleep,
+                                smoking_habits=smoking,
+                                diabetes=st.session_state.get("profile_diabetes", "No"),
+                                physical_activity=st.session_state.get("profile_activity", "Active"),
+                                lang=get_current_language()  # Pass current language
+                            )
+                            # Cache the results
+                            st.session_state["ai_insights"] = insights
                         
                         if insights.error:
                             st.warning(f"⚠️ {insights.error}")
@@ -2520,6 +2528,112 @@ if uploaded_file is not None or recorded_file_path is not None:
                         st.error(f"{t('error_generating_insights')}: {str(e)}")
             else:
                 st.info(t("insights_module_unavailable"))
+            
+            # ================================================================
+            # AUTOMATIC SESSION SAVE
+            # ================================================================
+            if HAVE_HISTORY:
+                try:
+                    # Calculate BMI
+                    height_m = st.session_state.get("profile_height", 170) / 100.0
+                    weight_kg = st.session_state.get("profile_weight", 70)
+                    bmi = weight_kg / (height_m ** 2)
+                    
+                    # Ensure vitals object is up to date with needed attributes
+                    if not hasattr(vitals, 'sdnn'): vitals.sdnn = getattr(vitals, 'hrv_sdnn', 0.0)
+                    if not hasattr(vitals, 'pnn50'): vitals.pnn50 = getattr(vitals, 'hrv_pnn50', 0.0)
+                    if not hasattr(vitals, 'rr_intervals'): vitals.rr_intervals = np.array([])
+                    if not hasattr(vitals, 'heart_rate_bpm'): vitals.heart_rate_bpm = getattr(vitals, 'heart_rate', 0.0)
+                    if not hasattr(vitals, 'stress_level'): vitals.stress_level = getattr(vitals, 'stress_index', 0.0)
+                    
+                    # Get AI insights if available
+                    if HAVE_AI_INSIGHTS and 'insights' in locals():
+                        detailed_analysis = insights.detailed_analysis if not insights.error else ""
+                        recommendations = insights.recommendations if not insights.error else []
+                        symptoms_to_watch = insights.symptoms_to_watch if not insights.error else []
+                    else:
+                        detailed_analysis = ""
+                        recommendations = []
+                        symptoms_to_watch = []
+                    
+                    with open("debug_log.txt", "a") as f:
+                        f.write(f"DEBUG {datetime.now()}: Checking for current_session in AUTOMATIC SAVE. In state: {'current_session' in st.session_state}\n")
+                        if 'current_session' in st.session_state:
+                             f.write(f"DEBUG {datetime.now()}: Found current_session with ID: {st.session_state['current_session'].session_id}\n")
+
+                    # Create session data
+                    # Check if we already have a current session to avoid duplicates
+                    if "current_session" in st.session_state:
+                         session_data = st.session_state["current_session"]
+                    else:
+                        session_data = SessionData(
+                            session_id=str(uuid.uuid4()),
+                            timestamp=datetime.now(pytz.UTC).isoformat(),
+                            analysis_type="Health Scan",
+                            
+                            # Profile
+                            age=st.session_state.get("profile_age", 30),
+                            gender=st.session_state.get("profile_gender", "Prefer not to say"),
+                            height=st.session_state.get("profile_height", 170),
+                            weight=st.session_state.get("profile_weight", 70),
+                            bmi=bmi,
+                            diet=st.session_state.get("profile_diet", "Non-Vegetarian"),
+                            exercise=st.session_state.get("profile_exercise", "3–4x/week"),
+                            sleep=st.session_state.get("profile_sleep", 7.0),
+                            smoking=st.session_state.get("profile_smoking", "Never"),
+                            drinking=st.session_state.get("profile_drinking", "Never"),
+                            diabetes=st.session_state.get("profile_diabetes", "No"),
+                            physical_activity=st.session_state.get("profile_activity", "Active"),
+                            
+                            # Vitals
+                            heart_rate=float(vitals.heart_rate_bpm),
+                            heart_rate_confidence=vitals.heart_rate_confidence,
+                            stress_level=float(vitals.stress_level) if vitals.stress_level is not None and not np.isnan(vitals.stress_level) else 5.0,
+                            bp_systolic=float(vitals.bp_systolic) if vitals.bp_systolic is not None else None,
+                            bp_diastolic=float(vitals.bp_diastolic) if vitals.bp_diastolic is not None else None,
+                            spo2=float(vitals.spo2) if vitals.spo2 is not None else None,
+                            hrv_sdnn=float(vitals.sdnn) if vitals.sdnn is not None else 0.0,
+                            hrv_rmssd=float(vitals.hrv_rmssd) if hasattr(vitals, 'hrv_rmssd') and vitals.hrv_rmssd is not None else None,
+                            hrv_pnn50=float(vitals.pnn50) if vitals.pnn50 is not None else 0.0,
+                            rr_intervals_count=len(vitals.rr_intervals) + 1 if vitals.rr_intervals.size > 0 else 0,
+                            
+                            # Risk
+                            risk_score=float(profile_risk["score"]),
+                            risk_level=profile_risk["level"],
+                            risk_factors=profile_risk["risk_factors"],
+                            protective_factors=profile_risk["protective_factors"],
+                            
+                            # AI Insights
+                            detailed_analysis=detailed_analysis,
+                            recommendations=recommendations,
+                            symptoms_to_watch=symptoms_to_watch,
+                            
+                            # Visualizations
+                            signal_plot=None,
+                            hrv_plot=None
+                        )
+                        
+                        # Save session
+                        username = get_current_user_email() or "default_user"
+                        with open("debug_log.txt", "a") as f:
+                             f.write(f"DEBUG {datetime.now()}: Saving NEW session for {username}\n")
+                        
+                        if save_session(username, session_data):
+                            with open("debug_log.txt", "a") as f:
+                                f.write(f"DEBUG {datetime.now()}: Session saved successfully. ID: {session_data.session_id}\n")
+                            st.toast(f"✅ Session saved to history!") 
+                            st.session_state["current_session"] = session_data
+                            # Force a rerun so the history sidebar updates immediately
+                            st.rerun()
+                        else:
+                            with open("debug_log.txt", "a") as f:
+                                f.write(f"DEBUG {datetime.now()}: Failed to save session\n")
+                            st.warning("⚠️ Could not save session to history")
+                
+                except Exception as e:
+                    st.error(f"Error saving session: {e}")
+                    with open("debug_log.txt", "a") as f:
+                        f.write(f"DEBUG {datetime.now()}: Exception saving session: {e}\n")
             
             # Detailed Experimental Vitals removed; top-row shows compact metrics
             
@@ -2705,85 +2819,9 @@ if uploaded_file is not None or recorded_file_path is not None:
                 st.divider()
                 st.subheader("📄 Save & Download")
                 
-                # Capture session data
-                try:
-                    # Calculate BMI
-                    height_m = st.session_state.get("profile_height", 170) / 100.0
-                    weight_kg = st.session_state.get("profile_weight", 70)
-                    bmi = weight_kg / (height_m ** 2)
-                    
-                    # Ensure vitals object is up to date with needed attributes
-                    if not hasattr(vitals, 'sdnn'): vitals.sdnn = getattr(vitals, 'hrv_sdnn', 0.0)
-                    if not hasattr(vitals, 'pnn50'): vitals.pnn50 = getattr(vitals, 'hrv_pnn50', 0.0)
-                    if not hasattr(vitals, 'rr_intervals'): vitals.rr_intervals = np.array([])
-                    if not hasattr(vitals, 'heart_rate_bpm'): vitals.heart_rate_bpm = getattr(vitals, 'heart_rate', 0.0)
-                    if not hasattr(vitals, 'stress_level'): vitals.stress_level = getattr(vitals, 'stress_index', 0.0)
-                    
-                    # Get AI insights if available
-                    if HAVE_AI_INSIGHTS and 'insights' in locals():
-                        detailed_analysis = insights.detailed_analysis if not insights.error else ""
-                        recommendations = insights.recommendations if not insights.error else []
-                        symptoms_to_watch = insights.symptoms_to_watch if not insights.error else []
-                    else:
-                        detailed_analysis = ""
-                        recommendations = []
-                        symptoms_to_watch = []
-                    
-                    # Create session data
-                    session_data = SessionData(
-                        session_id=str(uuid.uuid4()),
-                        timestamp=datetime.now(pytz.UTC).isoformat(),
-                        analysis_type="Health Scan",
-                        
-                        # Profile
-                        age=st.session_state.get("profile_age", 30),
-                        gender=st.session_state.get("profile_gender", "Prefer not to say"),
-                        height=st.session_state.get("profile_height", 170),
-                        weight=st.session_state.get("profile_weight", 70),
-                        bmi=bmi,
-                        diet=st.session_state.get("profile_diet", "Non-Vegetarian"),
-                        exercise=st.session_state.get("profile_exercise", "3–4x/week"),
-                        sleep=st.session_state.get("profile_sleep", 7.0),
-                        smoking=st.session_state.get("profile_smoking", "Never"),
-                        drinking=st.session_state.get("profile_drinking", "Never"),
-                        diabetes=st.session_state.get("profile_diabetes", "No"),
-                        physical_activity=st.session_state.get("profile_activity", "Active"),
-                        
-                        # Vitals
-                        heart_rate=float(vitals.heart_rate_bpm),
-                        heart_rate_confidence=vitals.heart_rate_confidence,
-                        stress_level=float(vitals.stress_level) if vitals.stress_level is not None and not np.isnan(vitals.stress_level) else 5.0,
-                        bp_systolic=float(vitals.bp_systolic) if vitals.bp_systolic is not None else None,
-                        bp_diastolic=float(vitals.bp_diastolic) if vitals.bp_diastolic is not None else None,
-                        spo2=float(vitals.spo2) if vitals.spo2 is not None else None,
-                        hrv_sdnn=float(vitals.sdnn) if vitals.sdnn is not None else 0.0,
-                        hrv_rmssd=float(vitals.hrv_rmssd) if hasattr(vitals, 'hrv_rmssd') and vitals.hrv_rmssd is not None else None,
-                        hrv_pnn50=float(vitals.pnn50) if vitals.pnn50 is not None else 0.0,
-                        rr_intervals_count=len(vitals.rr_intervals) + 1 if vitals.rr_intervals.size > 0 else 0,
-                        
-                        # Risk
-                        risk_score=float(profile_risk["score"]),
-                        risk_level=profile_risk["level"],
-                        risk_factors=profile_risk["risk_factors"],
-                        protective_factors=profile_risk["protective_factors"],
-                        
-                        # AI Insights
-                        detailed_analysis=detailed_analysis,
-                        recommendations=recommendations,
-                        symptoms_to_watch=symptoms_to_watch,
-                        
-                        # Visualizations (disabled by user request)
-                        signal_plot=None,
-                        hrv_plot=None
-                    )
-                    
-                    # Save session
-                    username = get_current_user_email() or "default_user"
-                    if save_session(username, session_data):
-                        st.success(f"✅ Session saved to history!")
-                        st.session_state["current_session"] = session_data
-                    else:
-                        st.warning("⚠️ Could not save session to history")
+                # Check if session data is available
+                if "current_session" in st.session_state:
+                    session_data = st.session_state["current_session"]
                     
                     # PDF Download button
                     col1, col2 = st.columns([1, 3])
@@ -2823,42 +2861,18 @@ if uploaded_file is not None or recorded_file_path is not None:
                                                     Body=pdf_bytes,
                                                     ContentType='application/pdf'
                                                 )
-                                                # st.toast(f"✅ Report saved to cloud history!", icon="☁️")
-                                                
                                                 # Save metadata to Supabase (Silent)
                                                 supabase = get_supabase_client()
                                                 if supabase:
-                                                    # Try to get user. Since we use email auth, we query by email
-                                                    # to get the correct UUID for the user_files table
                                                     user_resp = supabase.table('users').select('id').eq('email', user_email).execute()
-                                                    if user_resp.data:
-                                                        db_user_id = user_resp.data[0]['id']
-                                                    else:
-                                                        # Fallback if user not found in our custom table 
-                                                        # Or try session UUID/auth
-                                                        db_user_id = None
-                                                    
-                                                    if db_user_id:
-                                                        supabase.table('user_files').insert({
-                                                            'user_id': db_user_id,
-                                                            'file_name': f"Health_Report_{timestamp}.pdf",
-                                                            's3_bucket': bucket_name,
-                                                            's3_key': s3_key,
-                                                            'file_size_bytes': len(pdf_bytes),
-                                                            'content_type': 'application/pdf',
-                                                            'uploaded_at': datetime.now().isoformat()
-                                                        }).execute()
                                         except Exception as e:
-                                            print(f"Auto-upload failed: {e}") 
-                                            # Fail silently or just log, don't block user download
-                                            # Fail silently or just log, don't block user download
-
+                                            # Silent fail for S3
+                                            pass
                                 except Exception as e:
                                     st.error(f"Error generating PDF: {str(e)}")
                                     st.session_state["generate_pdf"] = False
-                
-                except Exception as e:
-                    st.warning(f"Could not save session: {str(e)}")
+                else:
+                    st.warning("⚠️ No session data available to generate report.")
 
             
             # Cleanup
