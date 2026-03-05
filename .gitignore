@@ -1,6 +1,9 @@
 # Environment variables
 .env
 
+# Streamlit secrets (never commit API keys!)
+.streamlit/secrets.toml
+
 # User data
 .wellio/
 
