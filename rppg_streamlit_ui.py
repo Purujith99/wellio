@@ -1886,13 +1886,24 @@ if recording_mode == "live":
     
     # Use the refactored bidirectional camera component
     if not st.session_state.get("recorded_file_path"):
-        base64_video = camera_component(duration_seconds=15, key="live_v5_stable")
+        camera_placeholder = st.empty()
+        # Render the component
+        base64_video = camera_placeholder.container().empty()  # Initialize empty container to clear later
+        
+        # Override with actual component rendering
+        with camera_placeholder:
+            base64_video = camera_component(duration_seconds=15, key="live_v5_stable")
         
         if base64_video:
             video_path = save_camera_video(base64_video)
             if video_path:
                 st.session_state["recorded_file_path"] = video_path
                 st.success("✅ Video recorded successfully!")
+                
+                # Explicitly clear the camera component to stop any polling
+                camera_placeholder.empty()
+                st.session_state.pop("live_v5_stable", None) # Clear large video data from session
+                
                 st.rerun() # Refresh to trigger analysis with the new file
         
     # Status display
