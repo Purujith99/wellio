@@ -9,7 +9,6 @@ Handles secure 3-layer session persistence:
 """
 
 import streamlit as st
-import extra_streamlit_components as stx
 from datetime import datetime, timedelta
 import time
 from typing import Optional
